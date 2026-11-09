@@ -1,0 +1,15 @@
+{
+  "name": "musicdogs",
+  "version": "1.0.0",
+  "description": "MusicDogs — a rhythm game starring a band of very good dogs.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "build": "node tools/build-single.mjs",
+    "test": "node tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
