@@ -1,7 +1,7 @@
 // The stage the pup lives on: renderer, lights, sky, props, camera, particles.
 
 import * as THREE from 'three';
-import { G, part, group, bellGeo, tubeGeo } from './dog/build.js';
+import { G, part, group, bellGeo, tubeGeo, tagAll } from './dog/build.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -54,6 +54,7 @@ export class World {
     this._stage();
     this._props();
     this._particleTextures();
+    this._floaters();
   }
 
   // ------------------------------------------------------------------ setup
@@ -323,6 +324,74 @@ export class World {
     tub.visible = false;
     this.tubK = 0;
     this.tubTarget = 0;
+
+    // tip jar: fills with gold while the pup busks
+    const jar = (this.jar = group(s, [1.04, 0, 0.95]));
+    const glass = new THREE.MeshPhysicalMaterial({ color: '#DDF3FF', roughness: 0.05, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
+    const gold = std('#FFC83D', 0.25, 0.9);
+    part(jar, G.cyl(0.21, 0.19, 0.44, 28, true), glass, { p: [0, 0.23, 0], cast: false });
+    part(jar, G.cyl(0.19, 0.19, 0.02, 28), std('#BFD9E8', 0.3), { p: [0, 0.01, 0] });
+    part(jar, G.torus(0.21, 0.018, Math.PI * 2, 32, 8), std('#FFFFFF', 0.3), { p: [0, 0.45, 0], r: [Math.PI / 2, 0, 0] });
+    this.jarGold = part(jar, G.cyl(0.175, 0.165, 1, 24), gold, { p: [0, 0.03, 0], s: [1, 0.02, 1] });
+    this.jarCoins = group(jar);
+    for (let i = 0; i < 7; i++) {
+      const a = i * 2.4;
+      part(this.jarCoins, G.cyl(0.05, 0.05, 0.014, 14), gold, { p: [Math.cos(a) * 0.09 * (i ? 1 : 0), 0.012 + (i % 3) * 0.012, Math.sin(a) * 0.09 * (i ? 1 : 0)], r: [0.3 * Math.sin(a), 0, 0.3 * Math.cos(a)], cast: false });
+    }
+    // invisible, generous tap target
+    part(jar, G.cyl(0.3, 0.3, 0.6, 12), new THREE.MeshBasicMaterial({ visible: false }), { p: [0, 0.3, 0], cast: false });
+    tagAll(jar, 'jar');
+    this.jarFill = 0;
+    this.jarPop = 0;
+
+    // today's gift
+    const gift = (this.gift = group(s, [0.3, 0, 1.3]));
+    const wrap = std('#FF5D8F', 0.5);
+    const ribbon = std('#FFD23F', 0.35, 0.3);
+    part(gift, G.box(0.42, 0.34, 0.42), wrap, { p: [0, 0.17, 0] });
+    part(gift, G.box(0.46, 0.1, 0.46), std('#FF7DA6', 0.5), { p: [0, 0.37, 0] });
+    part(gift, G.box(0.1, 0.44, 0.47), ribbon, { p: [0, 0.21, 0] });
+    part(gift, G.box(0.47, 0.44, 0.1), ribbon, { p: [0, 0.21, 0] });
+    for (const sgn of [-1, 1]) part(gift, G.torus(0.085, 0.03, Math.PI * 2, 18, 8), ribbon, { p: [sgn * 0.085, 0.49, 0], r: [0, 0, sgn * 0.5] });
+    part(gift, G.box(0.6, 0.7, 0.6), new THREE.MeshBasicMaterial({ visible: false }), { p: [0, 0.35, 0], cast: false });
+    tagAll(gift, 'gift');
+    gift.visible = false;
+
+    this.tappables = [jar, gift];
+  }
+
+  /** Everything that floats: the golden note and the Virtuoso star halo. */
+  _floaters() {
+    const g = (this.golden = new THREE.Group());
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex.glow, color: '#FFE27A', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.scale.setScalar(1.3);
+    const noteSp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex.note, color: '#FFD23F', transparent: true, depthWrite: false }));
+    noteSp.scale.setScalar(0.55);
+    g.add(glow, noteSp);
+    g.userData.glow = glow;
+    g.visible = false;
+    this.scene.add(g);
+
+    this.halo = [];
+    for (let i = 0; i < 8; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex.star, color: '#FFD23F', transparent: true, depthWrite: false }));
+      sp.scale.setScalar(0.17);
+      sp.visible = false;
+      this.scene.add(sp);
+      this.halo.push(sp);
+    }
+  }
+
+  setJar(fill) {
+    if (fill > this.jarFill + 0.02) this.jarPop = 1;
+    this.jarFill = fill;
+  }
+
+  /** Screen position (CSS px) of a world point, for tap tests on sprites. */
+  toScreen(v) {
+    const q = v.clone().project(this.camera);
+    const r = this.canvas.getBoundingClientRect();
+    return { x: r.left + ((q.x + 1) / 2) * r.width, y: r.top + ((1 - q.y) / 2) * r.height, behind: q.z > 1 };
   }
 
   _particleTextures() {
@@ -384,6 +453,14 @@ export class World {
         c.textAlign = 'center';
         c.textBaseline = 'middle';
         c.fillText('z', 0, 0);
+      }),
+      glow: make((c) => {
+        const g = c.createRadialGradient(0, 0, 0, 0, 0, 46);
+        g.addColorStop(0, 'rgba(255,255,255,0.95)');
+        g.addColorStop(0.3, 'rgba(255,255,255,0.4)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g;
+        c.fillRect(-48, -48, 96, 96);
       }),
       drop: make((c) => {
         c.fillStyle = '#8FDFFF';
@@ -448,6 +525,8 @@ export class World {
     for (const h of hits) {
       if (h.object.userData.tag && h.object.visible) return { tag: h.object.userData.tag, point: h.point, onDog: true };
     }
+    const props = this.ray.intersectObjects(this.tappables.filter((t) => t.visible), true);
+    if (props.length) return { tag: props[0].object.userData.tag, point: props[0].point, onDog: false };
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const p = new THREE.Vector3();
     if (this.ray.ray.intersectPlane(plane, p) && Math.hypot(p.x, p.z) < FLOOR_R - 0.25) return { tag: 'floor', point: p, onDog: false };
@@ -511,6 +590,22 @@ export class World {
       this.tub.scale.setScalar(Math.max(0.001, this.tubK));
       if (this.tubK === 0) this.tub.visible = false;
     }
+
+    // tip jar: gold level, a little hop whenever it gains, a wobble when brimming
+    const jf = this.jarFill;
+    this.jarGold.scale.y = 0.02 + jf * 0.36;
+    this.jarGold.position.y = 0.03 + (0.02 + jf * 0.36) / 2;
+    this.jarCoins.position.y = 0.04 + jf * 0.36;
+    this.jarCoins.visible = jf > 0.03;
+    this.jarPop = Math.max(0, this.jarPop - dt * 4);
+    const wob = jf >= 0.999 ? Math.abs(Math.sin(t * 5)) * 0.08 : 0;
+    this.jar.scale.set(1 + this.jarPop * 0.08, 1 - this.jarPop * 0.06 + wob * 0.5, 1 + this.jarPop * 0.08);
+    this.jar.position.y = wob;
+    if (this.gift.visible) {
+      this.gift.position.y = Math.abs(Math.sin(t * 3.2)) * 0.14;
+      this.gift.rotation.y = Math.sin(t * 1.6) * 0.25;
+    }
+    if (this.golden.visible) this.golden.userData.glow.scale.setScalar(1.2 + Math.sin(t * 6) * 0.2);
 
     // ball physics
     if (this.ballFree) {

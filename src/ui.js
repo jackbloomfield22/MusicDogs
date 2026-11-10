@@ -1,6 +1,6 @@
 // DOM interface: title, adoption, HUD, the care dock, the Orchestra sheet.
 
-import { FAMILIES, FAMILY_ORDER, UPGRADES, NEEDS, upgradeById } from './game.js';
+import { FAMILIES, FAMILY_ORDER, UPGRADES, NEEDS, STREAK_LEN, upgradeById } from './game.js';
 import { COATS } from './dog/build.js';
 
 const $ = (id) => document.getElementById(id);
@@ -59,6 +59,8 @@ export class UI {
       this.openModal('modal-settings');
     });
     $('goal').addEventListener('click', () => h.goal());
+    $('chip-tips').addEventListener('click', () => h.tips());
+    $('chip-gift').addEventListener('click', () => h.gift());
     for (const [id, btn] of Object.entries(this.acts)) btn.addEventListener('click', () => h.action(id));
 
     document.querySelectorAll('.starter').forEach((b) => b.addEventListener('click', () => {
@@ -170,8 +172,30 @@ export class UI {
     this.refresh();
   }
 
-  setGoal(html, done = false) {
+  /** Roll the note counter up or down to its real value instead of jumping. */
+  tickNotes(dt) {
+    const target = this.game.s.notes;
+    if (this.shownNotes === undefined || Math.abs(target - this.shownNotes) < 0.5) this.shownNotes = target;
+    else this.shownNotes += (target - this.shownNotes) * Math.min(1, dt * 9);
+    const text = String(Math.round(this.shownNotes));
+    if (text !== this._notesText) {
+      this._notesText = text;
+      $('notes').textContent = text;
+    }
+  }
+
+  showGift(g) {
+    $('gift-day').textContent = g.kept ? `Day ${g.day} · streak kept` : `Day ${g.day} of ${STREAK_LEN}`;
+    $('gift-title').textContent = { jackpot: 'Jackpot gift!', big: 'A big one!', nice: "Today's gift" }[g.tier];
+    $('gift-amount').textContent = String(g.amount);
+    $('gift-pips').innerHTML = Array.from({ length: STREAK_LEN }, (_, i) => `<i class="${i < g.day ? 'on' : ''}${i === g.day - 1 ? ' now' : ''}">${i + 1}</i>`).join('');
+    $('gift-next').textContent = g.day === STREAK_LEN ? 'A full week! The streak starts a fresh round tomorrow.' : `Come back tomorrow and the gift is worth ×${g.next}.`;
+    this.openModal('modal-gift');
+  }
+
+  setGoal(html, done = false, progress = 0) {
     const g = $('goal');
+    g.style.setProperty('--p', `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`);
     if (g.dataset.html !== html) {
       g.innerHTML = html;
       g.dataset.html = html;
@@ -190,8 +214,18 @@ export class UI {
     const g = this.game;
     const s = g.s;
     $('pup-name').textContent = s.name;
-    $('pup-rank').textContent = g.rank;
-    $('notes').textContent = String(s.notes);
+    $('pup-rank').textContent = s.stars ? `${g.rank} ★${s.stars}` : g.rank;
+    // tip jar chip
+    const fill = g.jarFill;
+    const rate = g.tipRate();
+    const chip = $('chip-tips');
+    $('tips-fill').style.height = `${Math.round(fill * 100)}%`;
+    $('tips-amount').textContent = String(Math.floor(s.jar));
+    $('tips-rate').textContent = fill >= 1 ? 'Full!' : s.frenzy > 0 ? `×3 for ${Math.ceil(s.frenzy)}s` : g.harmony ? `×2 · ${rate.toFixed(1)}/min` : `${rate.toFixed(1)}/min`;
+    chip.classList.toggle('ready', fill >= 0.25);
+    chip.classList.toggle('full', fill >= 1);
+    chip.classList.toggle('boost', g.harmony || s.frenzy > 0);
+    $('chip-gift').hidden = !g.dailyReady();
     for (const n of NEEDS) {
       const el = this.needEls[n];
       el.querySelector('u').style.width = `${Math.round(s.needs[n])}%`;
@@ -207,7 +241,7 @@ export class UI {
       b.classList.toggle('want', mode === 'free' && !!a.need && s.needs[a.need] < 30);
       b.querySelector('.lbl').textContent = mine && a.id === 'sleep' ? 'Wake' : mine && (a.id === 'play' || a.id === 'wash') ? 'Done' : a.label;
     }
-    const canGrow = UPGRADES.some((u) => g.status(u.id) === 'ready');
+    const canGrow = UPGRADES.some((u) => g.status(u.id) === 'ready') || (g.total >= 12 && s.notes >= g.starCost());
     this.acts.grow.classList.toggle('ready', mode === 'free' && canGrow);
     if (!$('sheet-orchestra').hidden) this.renderOrchestra();
   }
@@ -226,7 +260,7 @@ export class UI {
     const g = this.game;
     const cost = g.nextCost();
     // Only rebuild when something changed, so buttons are never swapped mid-tap.
-    const sig = `${g.s.notes}|${JSON.stringify(g.s.levels)}|${this.sel}`;
+    const sig = `${g.s.notes}|${JSON.stringify(g.s.levels)}|${this.sel}|${g.s.stars}`;
     if (!force && sig === this._orchSig) return;
     this._orchSig = sig;
     $('orch-sub').textContent = g.total >= 12 ? 'All 12 instruments grown. A full orchestra!' : `${g.total} of 12 instruments grown`;
@@ -239,8 +273,15 @@ export class UI {
         html += `<button type="button" class="up ${st}${u.id === this.sel ? ' sel' : ''}" data-up="${u.id}" style="--fam:${FAMILIES[f].color}"><b>${u.name}</b><span>${tail}</span></button>`;
       }
     }
+    if (g.total >= 12) {
+      const sc = g.starCost();
+      const can = g.s.notes >= sc;
+      html = `<div class="virtuoso" style="grid-column:1/-1"><h3>Virtuoso stars ${g.s.stars ? `★${g.s.stars}` : ''}</h3><p>Polish the whole orchestra. Each star makes every note you earn worth 10% more, for good.</p><button class="btn btn-primary" type="button" data-star ${can ? '' : 'disabled'}>${can ? `Add a star for ${sc} notes` : `Need ${sc - g.s.notes} more notes`}</button></div>${html}`;
+    }
     const grid = $('orch-grid');
     grid.innerHTML = html;
+    const star = grid.querySelector('[data-star]');
+    if (star) star.addEventListener('click', () => this.h.star());
     grid.querySelectorAll('.up').forEach((b) => b.addEventListener('click', () => {
       this.sel = b.dataset.up;
       this.h.sound('tap');

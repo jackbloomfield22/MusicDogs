@@ -41,6 +41,11 @@ const app = {
   pointerLook: null,
   lookT: 0,
   lastPulse: {}, // when each instrument last sounded (for concert bonus taps)
+  gold: null, // the golden note drifting across the stage, if any
+  goldT: 22, // seconds until the next one
+  wasHarmony: false,
+  harmonyToastT: 0,
+  sparkleT: 0,
 };
 // Angle between the pup's nose and the camera that shows each part best.
 const BEST_VIEW = { perc1: 0.95, perc2: 0.45, perc3: 1.5, str1: 2.4, str2: 2.15, str3: 1.6, wood1: 0.6, wood2: 2.2, wood3: 1.35, brass1: 0.8, brass2: -1.1, brass3: -1.0 };
@@ -56,6 +61,147 @@ function note(amount, at) {
   audio.ui('coin');
   const p = at || dog.anchor('head', tmp).add(new THREE.Vector3(0, 0.5, 0));
   world.burst('note', p, Math.min(8, 2 + Math.floor(amount / 4)), { color: '#FFD23F', size: 0.3, up: 1.8, speed: 0.8, life: 1.2 });
+}
+
+/** Pay out a care reward; now and then it comes up double. */
+function careNote(amount) {
+  const r = game.lucky(amount);
+  note(r.amount);
+  if (r.lucky) {
+    world.burst('star', dog.anchor('head', new THREE.Vector3()).add(new THREE.Vector3(0, 0.5, 0)), 8, { color: '#FFE45C', size: 0.24, up: 1.8, speed: 1.2, life: 1.1, spin: 4 });
+    ui.toast(`Lucky! Double notes: ${r.amount}`);
+  }
+}
+
+// ---------------------------------------------------------------- tips engine
+
+function collectTips() {
+  if (app.screen !== 'hud') return;
+  const got = game.collectJar();
+  if (!got) {
+    audio.ui('no');
+    ui.toast('The tip jar is empty. It fills while your pup plays.');
+    return;
+  }
+  audio.ui('coins');
+  ui.bumpNotes();
+  const p = world.jar.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.5, 0));
+  world.burst('note', p, Math.min(14, 4 + Math.floor(got / 8)), { color: '#FFD23F', size: 0.3, up: 2.4, speed: 1.1, gravity: 2, life: 1.3 });
+  world.jarPop = 1;
+  dog.happy = Math.max(dog.happy, 0.8);
+  if (got >= 30) ui.toast(`${got} notes from the tip jar`);
+  game.save();
+  updateGoal();
+}
+
+function openGift() {
+  if (app.screen !== 'hud' || !game.dailyReady()) return;
+  const g = game.claimDaily();
+  if (!g) return;
+  world.gift.visible = false;
+  audio.ui('unwrap');
+  if (g.tier !== 'nice') setTimeout(() => audio.fanfare(g.tier === 'jackpot'), 350);
+  const p = world.gift.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.5, 0));
+  world.burst('star', p, 18, { colors: ['#FFD23F', '#FF7DB8', '#5CE1FF', '#FFFFFF'], size: 0.28, up: 2.6, speed: 1.8, gravity: 2.5, life: 1.5, spin: 4 });
+  world.burst('note', p, 8, { color: '#FFD23F', size: 0.3, up: 2.2, speed: 0.9, life: 1.3 });
+  dog.happy = 2;
+  dog.jump(2.8);
+  audio.bark(1.5, 0.3);
+  ui.bumpNotes();
+  ui.showGift(g);
+  updateGoal();
+}
+
+function spawnGolden() {
+  app.gold = { t: 0, dur: 12, dir: Math.random() < 0.5 ? 1 : -1, y: rand(1.7, 2.3) };
+  world.golden.visible = true;
+  audio.ui('shimmer');
+}
+
+function catchGolden() {
+  const p = world.golden.position.clone();
+  app.gold = null;
+  world.golden.visible = false;
+  app.goldT = rand(55, 115);
+  const prize = game.goldenPrize();
+  audio.ui('coins');
+  world.burst('star', p, 14, { colors: ['#FFD23F', '#FFFFFF', '#FFE9A0'], size: 0.26, up: 1.6, speed: 2, life: 1.2, spin: 5 });
+  if (prize.kind === 'frenzy') {
+    audio.fanfare(false);
+    ui.toast('Tip frenzy! Triple tips for 30 seconds');
+  } else {
+    ui.bumpNotes();
+    world.burst('note', p, 6, { color: '#FFD23F', size: 0.3, up: 1.6, speed: 0.9, life: 1.2 });
+    if (prize.kind === 'jackpot') {
+      audio.fanfare(true);
+      ui.toast(`Jackpot! A golden note worth ${prize.amount}`);
+    } else if (prize.kind === 'big') {
+      audio.fanfare(false);
+      ui.toast(`A big one! ${prize.amount} notes`);
+    } else ui.toast(`Golden note: ${prize.amount} notes`);
+  }
+  dog.happy = 1.5;
+  dog.jump(2.4);
+  game.save();
+  updateGoal();
+}
+
+function updateTips(dt) {
+  world.setJar(game.jarFill);
+  // golden notes drift by now and then (never during naps, baths or concerts)
+  if (app.gold) {
+    const g = app.gold;
+    g.t += dt;
+    const k = g.t / g.dur;
+    const cam = world.camera;
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const span = Math.min(3.2, 1.3 + world.aspect * 1.6);
+    world.golden.position.set(dog.pos.x, g.y + Math.sin(g.t * 2.2) * 0.22, dog.pos.z).addScaledVector(right, (k * 2 - 1) * span * g.dir);
+    if (Math.random() < dt * 9) world.emit('star', world.golden.position, { color: '#FFE9A0', size: 0.13, vel: [rand(-0.2, 0.2), rand(-0.5, -0.1), rand(-0.2, 0.2)], life: 0.7, spin: 3 });
+    if (k >= 1 || app.mode === 'sleep' || app.mode === 'concert') {
+      app.gold = null;
+      world.golden.visible = false;
+      app.goldT = rand(45, 100);
+    }
+  } else if (app.mode === 'free' || app.mode === 'play') {
+    app.goldT -= dt;
+    if (app.goldT <= 0 && !ui.anyModal()) spawnGolden();
+  }
+  // a glint above the jar once it is worth emptying, sparkles around a pup in harmony
+  app.sparkleT -= dt;
+  if (app.sparkleT <= 0) {
+    app.sparkleT = 0.7;
+    if (game.jarFill > 0.5) world.emit('star', world.jar.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(rand(-0.15, 0.15), 0.55, rand(-0.15, 0.15))), { color: '#FFE45C', size: 0.16, vel: [0, 0.7, 0], life: 0.9, spin: 3 });
+    if (game.harmony && !dog.asleep) world.emit('star', dog.anchor('head', new THREE.Vector3()).add(new THREE.Vector3(rand(-0.6, 0.6), rand(-0.2, 0.6), rand(-0.6, 0.6))), { color: '#FFFFFF', size: 0.14, vel: [0, 0.5, 0], life: 0.9, spin: 3 });
+  }
+  app.harmonyToastT -= dt;
+  const h = game.harmony;
+  if (h && !app.wasHarmony && app.harmonyToastT <= 0 && app.mode !== 'sleep') {
+    app.harmonyToastT = 90;
+    audio.ui('shimmer');
+    ui.toast(`${game.s.name} is in harmony. Tips are doubled!`);
+  }
+  app.wasHarmony = h;
+  // Virtuoso stars circle the pup's head
+  const n = Math.min(world.halo.length, game.s.stars);
+  const head = n ? dog.anchor('head', tmp) : null;
+  world.halo.forEach((sp, i) => {
+    sp.visible = i < n && app.screen === 'hud';
+    if (!sp.visible) return;
+    const a = app.t * 1.3 + (i / n) * Math.PI * 2;
+    sp.position.set(head.x + Math.cos(a) * 0.62, head.y + 0.52 + Math.sin(a * 2) * 0.05, head.z + Math.sin(a) * 0.62);
+  });
+}
+
+function buyStar() {
+  if (!game.buyStar()) return audio.ui('no');
+  audio.fanfare(true);
+  dog.happy = 2;
+  dog.jump(3);
+  world.burst('star', dog.anchor('head', new THREE.Vector3()).add(new THREE.Vector3(0, 0.5, 0)), 20, { colors: ['#FFD23F', '#FFFFFF'], size: 0.28, up: 2.2, speed: 1.8, life: 1.4, spin: 5 });
+  ui.toast(`Virtuoso star ${game.s.stars}! Every note is now worth ${Math.round((game.boost - 1) * 100)}% more`);
+  ui.refresh();
+  return undefined;
 }
 
 function hearts(n = 3, at) {
@@ -128,7 +274,7 @@ function updateEat(dt) {
     dog.jump(2.2);
     hearts(3);
     audio.bark(1.4, 0.35);
-    note(game.earn((s.needs.food - app.careFrom) * 0.3));
+    careNote(game.earn((s.needs.food - app.careFrom) * 0.3));
     questDone(2);
     setMode('free');
     goCenter();
@@ -189,7 +335,7 @@ function updatePlay() {
         audio.bark(1.5, 0.3);
         hearts(2);
         game.spend('rest', 3);
-        note(game.care('fun', 17, 0.3));
+        careNote(game.care('fun', 17, 0.3));
         questDone(2);
         if (game.s.needs.rest < 8) {
           ui.toast(`${game.s.name} is all played out.`);
@@ -265,7 +411,7 @@ function endWash(finished) {
     setTimeout(() => world.burst('star', dog.anchor('head', new THREE.Vector3()), 8, { colors: ['#FFFFFF', '#9BE4FF', '#FFE45C'], size: 0.22, up: 1.2, speed: 1.2, life: 1 }), 900);
     questDone(2);
   }
-  note(game.earn((game.s.needs.clean - app.careFrom) * 0.25));
+  careNote(game.earn((game.s.needs.clean - app.careFrom) * 0.25));
   setMode('free');
 }
 
@@ -295,7 +441,7 @@ function wake() {
   world.nightTarget = 0;
   audio.setMode('idle');
   dog.happy = 0.8;
-  note(game.earn((game.s.needs.rest - app.careFrom) * 0.15));
+  careNote(game.earn((game.s.needs.rest - app.careFrom) * 0.15));
   if (game.s.needs.rest - app.careFrom > 10) questDone(2);
   setMode('free');
   goCenter();
@@ -323,12 +469,23 @@ function endConcert() {
   if (app.mode !== 'concert') return;
   audio.setMode('idle');
   audio.applause();
-  const earned = game.finishConcert(app.bonus);
+  const { earned, tier } = game.finishConcert(app.bonus);
   dog.happy = 2;
   dog.jump(3);
-  world.burst('star', dog.anchor('head', new THREE.Vector3()).add(new THREE.Vector3(0, 0.4, 0)), 16, { colors: ['#FFD23F', '#FF7DB8', '#5CE1FF', '#7CE38B'], size: 0.26, up: 2.4, speed: 1.8, gravity: 2.5, life: 1.5, spin: 3 });
+  const big = tier === 'ovation' || tier === 'encore';
+  world.burst('star', dog.anchor('head', new THREE.Vector3()).add(new THREE.Vector3(0, 0.4, 0)), big ? 30 : 16, { colors: ['#FFD23F', '#FF7DB8', '#5CE1FF', '#7CE38B'], size: 0.26, up: 2.4, speed: big ? 2.6 : 1.8, gravity: 2.5, life: 1.5, spin: 3 });
+  if (big) {
+    audio.applause(tier === 'encore' ? 4.5 : 3.6);
+    setTimeout(() => audio.fanfare(tier === 'encore'), 300);
+    setTimeout(() => dog.jump(2.6), 700);
+  }
   note(earned);
-  ui.toast(`Bravo! The crowd threw ${earned} notes`);
+  ui.toast({
+    applause: `Bravo! The crowd threw ${earned} notes`,
+    cheers: `The crowd cheered! ${earned} notes`,
+    ovation: `Standing ovation! Double tips: ${earned} notes`,
+    encore: `Encore! Encore! Triple tips: ${earned} notes`,
+  }[tier]);
   world.cam.zoomTarget = 0.8;
   questDone(3);
   setMode('free');
@@ -382,11 +539,15 @@ function updateGoal() {
   if (s.quest === 1) return ui.setGoal(`Tap the <b>${starter ? starter.name : 'instrument'}</b> to hear it`);
   if (s.quest === 2) return ui.setGoal('Look after your pup: try <b>Feed</b>, <b>Play</b> or <b>Wash</b>');
   if (s.quest === 3) return ui.setGoal('Hold a <b>Concert</b> to earn notes');
-  if (game.total >= 12) return ui.setGoal('<b>Full Orchestra!</b> Take a bow', true);
+  if (game.total >= 12) {
+    const cost = game.starCost();
+    if (s.notes >= cost) return ui.setGoal('You can add a <b>Virtuoso star</b>! Tap Grow', true, 1);
+    return ui.setGoal(`Next: <b>Virtuoso star</b> · ${cost - s.notes} more notes`, false, s.notes / cost);
+  }
   const ready = UPGRADES.find((u) => game.status(u.id) === 'ready');
-  if (ready) return ui.setGoal(`You can grow <b>${ready.name}</b>! Tap Grow`, true);
+  if (ready) return ui.setGoal(`You can grow <b>${ready.name}</b>! Tap Grow`, true, 1);
   const next = UPGRADES.find((u) => game.status(u.id) === 'poor');
-  return ui.setGoal(`Next: <b>${next.name}</b> · ${game.nextCost() - s.notes} more notes`);
+  return ui.setGoal(`Next: <b>${next.name}</b> · ${game.nextCost() - s.notes} more notes`, false, s.notes / game.nextCost());
 }
 
 // -------------------------------------------------------------------- input
@@ -408,6 +569,10 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   e.preventDefault();
+  if (app.gold) {
+    const sp = world.toScreen(world.golden.position);
+    if (!sp.behind && Math.hypot(sp.x - e.clientX, sp.y - e.clientY) < 58) return catchGolden();
+  }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
@@ -475,6 +640,8 @@ function pointerEnd(e) {
     if (app.mode === 'play') throwBall(point);
     return;
   }
+  if (tag === 'jar') return collectTips();
+  if (tag === 'gift') return openGift();
   if (dog.asleep || app.mode === 'eat') return;
   if (tag === 'foam') return scrub(point);
   if (tag === 'pet') {
@@ -553,7 +720,9 @@ function enterGame() {
   frameScene();
   setMode('free');
   updateGoal();
-  if (game.away > 900) ui.toast(`${game.s.name} missed you!`);
+  if (game.awayTips >= 5) ui.toast(`While you were away, ${game.s.name} busked ${game.awayTips} notes. Tap the tip jar!`);
+  else if (game.away > 900) ui.toast(`${game.s.name} missed you!`);
+  game.awayTips = 0;
   dog.happy = 1.5;
   dog.jump(2.4);
   audio.bark(1.4, 0.35);
@@ -585,6 +754,9 @@ const ui = new UI(
       if (game.s.quest >= 4 && app.mode === 'free') action('grow');
     },
     buy,
+    tips: collectTips,
+    gift: openGift,
+    star: buyStar,
     hear: (id) => {
       audio.playPart(id);
       dog.pulse(id, 1.2);
@@ -599,6 +771,10 @@ const ui = new UI(
       if (app.mode === 'wash') endWash(false);
       if (app.mode === 'play') endPlay();
       audio.setMode('off');
+      app.gold = null;
+      world.golden.visible = false;
+      world.gift.visible = false;
+      world.halo.forEach((sp) => (sp.visible = false));
       game.reset();
       app.screen = 'adopt';
       setMode('free');
@@ -687,9 +863,12 @@ function frame(now) {
       if (game.s.needs.rest >= 100) wake();
     }
     idleBehaviour(dt);
+    updateTips(dt);
+    ui.tickNotes(dt);
     app.uiT -= dt;
     if (app.uiT <= 0) {
       app.uiT = 0.25;
+      world.gift.visible = game.dailyReady() && app.mode !== 'sleep' && app.mode !== 'wash';
       ui.refresh();
       if (game.s.quest >= 4) updateGoal();
     }
@@ -769,4 +948,4 @@ if (window.__MUSICDOGS_SINGLE_FILE) {
 }
 
 // Handy for tests and the curious.
-window.__musicdogs = { app, game, dog, world, audio, ui, action, buy, FLOOR_R };
+window.__musicdogs = { app, game, dog, world, audio, ui, action, buy, collectTips, openGift, spawnGolden, catchGolden, buyStar, FLOOR_R };

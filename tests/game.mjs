@@ -1,6 +1,6 @@
 // Dependency-free checks of the pet game's rules and music:  npm test
 import assert from 'node:assert/strict';
-import { Game, UPGRADES, COSTS, RANKS, NEEDS, FAMILY_ORDER } from '../src/game.js';
+import { Game, UPGRADES, COSTS, RANKS, NEEDS, FAMILY_ORDER, STREAK_LEN, dayIndex } from '../src/game.js';
 import { buildScore, BARS, STEPS_PER_BAR } from '../src/audio/score.js';
 
 let checks = 0;
@@ -8,11 +8,14 @@ const ok = (cond, msg) => {
   assert.ok(cond, msg);
   checks++;
 };
-const fresh = (family = 'perc') => {
-  const g = new Game(null);
+/** A repeatable stand-in for Math.random so results never flake. */
+const seeded = (seed = 12345) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+const fresh = (family = 'perc', rng = seeded()) => {
+  const g = new Game(null, rng);
   g.adopt('Testy', 'biscuit', family);
   return g;
 };
+const DAY = 86400000;
 
 // --- catalogue ---
 ok(UPGRADES.length === 12, 'twelve instrument parts');
@@ -116,6 +119,7 @@ for (const f of FAMILY_ORDER) {
   while (g.total < 12 && t < 3600 * 3) {
     const n = g.s.needs;
     const buyable = UPGRADES.find((u) => g.status(u.id) === 'ready');
+    if (g.jarFill > 0.1) g.collectJar();
     if (buyable) g.buy(buyable.id);
     else if (n.rest < 30) {
       const from = n.rest;
@@ -142,8 +146,120 @@ for (const f of FAMILY_ORDER) {
   }
   const minutes = t / 60;
   ok(g.total === 12, 'a caring player completes the orchestra');
-  ok(minutes > 12 && minutes < 50, `full orchestra takes a session, not seconds or days (simulated ${minutes.toFixed(1)} min)`);
+  ok(minutes > 8 && minutes < 50, `full orchestra takes a session, not seconds or days (simulated ${minutes.toFixed(1)} min)`);
   console.log(`  simulated time to Full Orchestra: ${minutes.toFixed(1)} minutes, ${g.s.concerts} concerts`);
+}
+
+// --- tip jar: steady income, in play and away ---
+{
+  const g = fresh();
+  g.s.needs = { food: 50, fun: 50, clean: 50, rest: 50 };
+  ok(g.collectJar() === 0, 'an empty jar gives nothing');
+  const slow = g.tipRate();
+  g.s.needs = { food: 90, fun: 90, clean: 90, rest: 90 };
+  ok(g.harmony && g.tipRate() > slow * 1.5, 'a pup in harmony earns tips much faster');
+  g.tick(120);
+  ok(g.s.jar > 2 && g.s.jar < g.tipCap(), 'tips trickle in while playing');
+  const got = g.collectJar();
+  ok(got >= 2 && g.s.notes === got && g.s.jar < 1, 'collecting the jar pays out whole notes');
+  const big = fresh();
+  big.s.levels = { perc: 3, str: 3, wood: 3, brass: 3 };
+  ok(big.tipRate(1) > g.tipRate(1) * 3 && big.tipCap() > g.tipCap() * 3, 'a bigger orchestra earns more and holds more');
+  g.applyAway(3600 * 24 * 30);
+  ok(Math.abs(g.s.jar - g.tipCap()) < 1e-6, 'the jar stops at its brim however long you are away');
+  ok(g.awayTips > 0 && g.awayTips <= g.tipCap(), 'time away is reported as tips to collect');
+  const cap = g.tipCap();
+  for (let i = 0; i < 100; i++) g.tick(60);
+  ok(g.s.jar <= cap + 1e-6, 'a full jar never overflows');
+}
+
+// --- daily gift + forgiving streak ---
+{
+  const t0 = Date.UTC(2026, 0, 10, 12);
+  const g = fresh();
+  ok(g.dailyReady(t0), 'a gift waits on the first day');
+  const a = g.claimDaily(t0);
+  ok(a && a.streak === 1 && a.amount > 0 && g.s.notes === a.amount, 'day one gift pays out');
+  ok(!g.dailyReady(t0 + 3600000) && g.claimDaily(t0 + 3600000) === null, 'only one gift a day');
+  const b = g.claimDaily(t0 + DAY);
+  ok(b.streak === 2 && !b.kept, 'coming back the next day grows the streak');
+  const c = g.claimDaily(t0 + DAY * 3);
+  ok(c.streak === 2 && c.kept, 'missing a single day keeps the streak instead of losing it');
+  const d = g.claimDaily(t0 + DAY * 8);
+  ok(d.streak === 1, 'a long break starts a fresh streak (and still pays a gift)');
+  ok(g.streakMult(7) > g.streakMult(1) && g.streakMult(8) === g.streakMult(1), `the gift grows over ${STREAK_LEN} days, then the round restarts`);
+  ok(dayIndex(t0 + DAY) === dayIndex(t0) + 1, 'days are counted on the calendar');
+  // gift tiers follow the roll
+  const tier = (roll) => {
+    const x = new Game(null, () => roll);
+    x.adopt('T', 'biscuit', 'perc');
+    return x.claimDaily(t0);
+  };
+  ok(tier(0.01).tier === 'jackpot' && tier(0.2).tier === 'big' && tier(0.9).tier === 'nice', 'gift tiers');
+  ok(tier(0.01).amount === tier(0.9).amount * 4, 'a jackpot gift is four times a normal one');
+}
+
+// --- surprises: golden notes, lucky care, crowd reactions ---
+{
+  const prize = (roll) => {
+    const x = new Game(null, () => roll);
+    x.adopt('T', 'biscuit', 'perc');
+    const p = x.goldenPrize();
+    return { ...p, frenzy: x.s.frenzy, notes: x.s.notes };
+  };
+  ok(prize(0.01).kind === 'jackpot' && prize(0.1).kind === 'big' && prize(0.3).kind === 'frenzy' && prize(0.9).kind === 'notes', 'golden note prizes');
+  ok(prize(0.9).notes > 0 && prize(0.01).amount === prize(0.9).amount * 8, 'golden notes always pay something; a jackpot pays eight-fold');
+  ok(prize(0.3).frenzy === 30, 'a tip frenzy lasts thirty seconds');
+  const f = fresh();
+  const base = f.tipRate();
+  f.s.frenzy = 30;
+  ok(Math.abs(f.tipRate() - base * 3) < 1e-9, 'a frenzy triples tips');
+  f.tick(31);
+  ok(f.s.frenzy === 0, 'and then it ends');
+
+  const lucky = new Game(null, () => 0.05);
+  lucky.adopt('T', 'biscuit', 'perc');
+  ok(lucky.lucky(10).amount === 20 && lucky.s.notes === 10, 'a lucky care reward doubles');
+  const plain = new Game(null, () => 0.5);
+  plain.adopt('T', 'biscuit', 'perc');
+  ok(plain.lucky(10).amount === 10 && !plain.lucky(0).lucky, 'most rewards are not lucky; zero never is');
+
+  const react = (roll, bonus = 0) => {
+    const x = new Game(null, () => roll);
+    x.adopt('T', 'biscuit', 'perc');
+    return x.crowdReaction(bonus).tier;
+  };
+  ok(react(0.001) === 'encore' && react(0.99) === 'applause', 'the crowd can go wild or stay polite');
+  const g = fresh();
+  let tiers = { applause: 0, cheers: 0, ovation: 0, encore: 0 };
+  for (let i = 0; i < 4000; i++) tiers[g.crowdReaction(10).tier]++;
+  ok(tiers.applause > tiers.cheers && tiers.cheers > tiers.ovation && tiers.ovation > tiers.encore && tiers.encore > 0, 'bigger ovations are rarer');
+  const sloppy = fresh('perc', seeded(7));
+  const skilled = fresh('perc', seeded(7));
+  sloppy.s.needs = { food: 20, fun: 20, clean: 20, rest: 20 };
+  skilled.s.needs = { food: 95, fun: 95, clean: 95, rest: 95 };
+  let a = 0, b = 0;
+  for (let i = 0; i < 4000; i++) {
+    a += sloppy.crowdReaction(0).mult;
+    b += skilled.crowdReaction(20).mult;
+  }
+  ok(b > a * 1.1, 'a happy pup and good timing earn better reactions on average');
+  const r = fresh().finishConcert(5);
+  ok(r.earned > 0 && ['applause', 'cheers', 'ovation', 'encore'].includes(r.tier), 'a concert reports what it earned and how the crowd reacted');
+}
+
+// --- Virtuoso stars: something to save for after Full Orchestra ---
+{
+  const g = fresh();
+  g.s.notes = 1e6;
+  ok(!g.buyStar(), 'no stars before the orchestra is complete');
+  for (const u of UPGRADES) if (!g.owns(u.id)) g.buy(u.id);
+  const c1 = g.starCost();
+  const rate = g.tipRate(1), concert = g.concertReward();
+  ok(g.buyStar() && g.s.stars === 1 && g.starCost() > c1, 'stars can be bought, each dearer than the last');
+  ok(g.tipRate(1) > rate && g.concertReward() > concert && Math.abs(g.boost - 1.1) < 1e-9, 'each star lifts everything earned by 10%');
+  g.s.notes = 0;
+  ok(!g.buyStar(), 'stars need notes');
 }
 
 // --- the score ---

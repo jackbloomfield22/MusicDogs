@@ -68,6 +68,16 @@
           </button>
         </div>
       </div>
+      <div class="chips">
+        <button id="chip-tips" class="chip tips" type="button" aria-label="Collect the tip jar">
+          <span class="jar" aria-hidden="true"><i id="tips-fill"></i></span>
+          <span class="chip-txt"><b id="tips-amount">0</b><small id="tips-rate">1/min</small></span>
+        </button>
+        <button id="chip-gift" class="chip gift" type="button" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18v4H3zM5 14h6v7H6a1 1 0 0 1-1-1zM13 14h6v6a1 1 0 0 1-1 1h-5zM12 8.500C10 3 4.500 4.500 6.500 8zM12 8.500C14 3 19.500 4.500 17.500 8z"/></svg>
+          <span class="chip-txt"><b>Gift</b><small>Open me</small></span>
+        </button>
+      </div>
       <div class="needs" id="needs"></div>
       <button class="goal" id="goal" type="button"></button>
       <div class="mode-hint" id="mode-hint" hidden></div>
@@ -105,6 +115,21 @@
           <a id="link-classic" class="btn btn-ghost" href="classic/">Rhythm game</a>
           <button id="btn-reset" class="btn btn-ghost danger" type="button">Start over</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Daily gift -->
+    <div id="modal-gift" class="modal" hidden>
+      <div class="panel small gift-panel">
+        <p class="gift-day" id="gift-day">Day 1</p>
+        <h2 id="gift-title">Today's gift</h2>
+        <div class="gift-amount">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.500a3 3 0 1 1-2-2.830V5.200l11-2.400v11.700a3 3 0 1 1-2-2.830V7.100L9 8.600z"/></svg>
+          <b id="gift-amount">0</b>
+        </div>
+        <div class="pips" id="gift-pips" aria-hidden="true"></div>
+        <p class="note" id="gift-next"></p>
+        <button class="btn btn-primary" data-close type="button">Lovely</button>
       </div>
     </div>
 

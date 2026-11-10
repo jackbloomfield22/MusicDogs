@@ -29,6 +29,26 @@ Tail**, **Clarinet Legs** or a **Trumpet Snout**. From there:
 | Woodwinds | Clarinet Legs | Bassoon Legs | Pan-Flute Mane |
 | Brass | Trumpet Snout | Horn Collar | Sousaphone Coil |
 
+### Tips, gifts and surprises
+
+Notes also arrive on their own, so there is always something waiting:
+
+- **Tip jar.** The pup busks all the time, even while the game is closed. The
+  jar fills faster with a bigger orchestra, doubles when all four needs are
+  comfortably full ("in harmony"), and stops at its brim. Tap it to collect.
+- **Daily gift.** One gift a day, worth more each day of a seven-day streak.
+  Missing a single day keeps the streak instead of losing it.
+- **Golden notes.** Every so often one drifts across the stage. Catch it for
+  notes, a tip frenzy, or now and then a jackpot.
+- **Crowd reactions.** Concerts end in polite applause, cheers, a standing
+  ovation or an encore. A happy pup and well-timed taps improve the odds.
+- **Lucky care.** Any care reward can come up double.
+- **Virtuoso stars.** After Full Orchestra, notes buy stars that make every
+  note worth 10% more.
+
+Nothing here costs money, uses countdown timers or takes anything away from
+a player who stays away.
+
 A pup goes from Solo Pup through Duo, Trio and Quartet all the way to Full
 Orchestra. Needs drift down slowly while you are away, but a pup is never
 hurt by neglect.
@@ -97,8 +117,9 @@ npm test
 ```
 
 Covers the upgrade catalogue, buying rules, needs, saving, time away, the
-score (every note in key and in range), and a simulated play session that
-must reach Full Orchestra in a sensible time.
+tip jar, gift streaks, surprise rewards, the score (every note in key and in
+range), and a simulated play session that must reach Full Orchestra in a
+sensible time.
 
 ## Classic rhythm game
 

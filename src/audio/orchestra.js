@@ -506,7 +506,15 @@ export class Orchestra {
       this._blip(900, 1700, 0.09, 0.12, 'square');
       this._blip(1700, 1000, 0.12, 0.1, 'square', t + 0.09);
     } else if (kind === 'bounce') this._blip(240, 120, 0.09, 0.14);
-    else if (kind === 'whoosh') {
+    else if (kind === 'coins') {
+      // a shower of coins: quick rising pings
+      for (let i = 0; i < 7; i++) this._blip(1175 * Math.pow(1.06, i * 2), 1175 * Math.pow(1.06, i * 2), 0.14, 0.07, 'triangle', t + i * 0.045);
+    } else if (kind === 'shimmer') {
+      [1568, 1976, 2349, 3136].forEach((f, i) => this._blip(f, f, 0.5, 0.045, 'sine', t + i * 0.07));
+    } else if (kind === 'unwrap') {
+      this._blip(300, 900, 0.18, 0.12, 'triangle');
+      [784, 988, 1175, 1568].forEach((f, i) => this._blip(f, f, 0.3, 0.08, 'triangle', t + 0.16 + i * 0.06));
+    } else if (kind === 'whoosh') {
       const ns = this._noise(t, 0.3);
       const bp = this.ctx.createBiquadFilter();
       bp.type = 'bandpass';

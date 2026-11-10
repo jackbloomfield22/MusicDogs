@@ -38,6 +38,18 @@ const DECAY = { food: 0.2, fun: 0.24, clean: 0.13, rest: 0.11 };
 const OFFLINE_SLOWDOWN = 24;
 const OFFLINE_FLOOR = 28;
 
+// --- the tips engine -------------------------------------------------------
+// Notes trickle into the tip jar all the time, even while the game is closed.
+const TIP_BASE = 0.8; // notes per minute for a plain pup
+const TIP_PER_PART = 0.45; // extra per instrument part grown
+const TIP_OFFLINE = 0.8; // away-from-game multiplier
+const STAR_BOOST = 0.1; // each Virtuoso star: +10% to everything earned
+const STAR_COST = 600;
+export const STREAK_LEN = 7;
+const DAY_MS = 86400000;
+/** Whole local days since the epoch, so "a new day" follows the player's own clock. */
+export const dayIndex = (now = Date.now()) => Math.floor((now - new Date(now).getTimezoneOffset() * 60000) / DAY_MS);
+
 const KEY = 'musicdogs3d.v1';
 
 export function newState() {
@@ -55,15 +67,22 @@ export function newState() {
     petPool: 10,
     lastSeen: Date.now(),
     quest: 0,
+    jar: 0, // uncollected tips
+    frenzy: 0, // seconds of tripled tips left
+    stars: 0, // Virtuoso stars (bought after Full Orchestra)
+    daily: { day: 0, streak: 0 },
+    lucky: 0,
     settings: { music: 0.8, sfx: 0.8, low: false },
   };
 }
 
 export class Game {
-  constructor(storage) {
+  constructor(storage, rng = Math.random) {
     this.storage = storage === undefined ? safeStorage() : storage;
+    this.rng = rng;
     this.s = newState();
     this.away = 0; // seconds since last visit (set by load)
+    this.awayTips = 0; // tips that piled up while away
   }
 
   // ------------------------------------------------------------------ save
@@ -74,7 +93,7 @@ export class Game {
       if (raw) {
         const p = JSON.parse(raw);
         const base = newState();
-        this.s = { ...base, ...p, levels: { ...base.levels, ...p.levels }, needs: { ...base.needs, ...p.needs }, settings: { ...base.settings, ...p.settings } };
+        this.s = { ...base, ...p, levels: { ...base.levels, ...p.levels }, needs: { ...base.needs, ...p.needs }, settings: { ...base.settings, ...p.settings }, daily: { ...base.daily, ...p.daily } };
       }
     } catch {
       this.s = newState();
@@ -100,13 +119,20 @@ export class Game {
     this.save();
   }
 
-  /** Needs drift down slowly while you are away, but never to rock bottom. */
+  /**
+   * While you are away the pup keeps busking (the jar fills, up to its brim)
+   * and needs drift down slowly, but never to rock bottom.
+   */
   applyAway(seconds) {
+    const before = this.s.jar;
+    this.s.jar = Math.min(this.tipCap(), this.s.jar + (this.tipRate(TIP_OFFLINE) * seconds) / 60);
+    this.awayTips = Math.max(0, Math.floor(this.s.jar) - Math.floor(before));
     for (const k of NEEDS) {
       const drop = (DECAY[k] * seconds) / OFFLINE_SLOWDOWN;
       this.s.needs[k] = Math.max(Math.min(this.s.needs[k], OFFLINE_FLOOR), this.s.needs[k] - drop);
     }
     this.s.petPool = 10;
+    this.s.frenzy = 0;
   }
 
   // ------------------------------------------------------------- adoption
@@ -131,6 +157,107 @@ export class Game {
 
   get rank() {
     return RANKS[Math.min(RANKS.length - 1, this.total)];
+  }
+
+  // ----------------------------------------------------------- tips engine
+
+  /** Everything earned is multiplied by this (Virtuoso stars). */
+  get boost() {
+    return 1 + STAR_BOOST * this.s.stars;
+  }
+
+  /** All four needs comfortably full: the pup is "in harmony" and tips double. */
+  get harmony() {
+    const n = this.s.needs;
+    return Math.min(n.food, n.fun, n.clean, n.rest) >= 70;
+  }
+
+  /** Notes per minute dropping into the jar. `factor` overrides the mood bonus. */
+  tipRate(factor) {
+    const f = factor ?? ((this.harmony ? 2 : 0.5 + this.mood) * (this.s.frenzy > 0 ? 3 : 1));
+    return (TIP_BASE + TIP_PER_PART * this.total) * this.boost * f;
+  }
+
+  /** The jar holds a couple of hours of tips; a bigger orchestra needs a bigger jar. */
+  tipCap() {
+    return Math.round(this.tipRate(1) * (60 + 20 * this.total));
+  }
+
+  get jarFill() {
+    return Math.min(1, this.s.jar / this.tipCap());
+  }
+
+  collectJar() {
+    const amount = Math.floor(this.s.jar);
+    if (amount < 1) return 0;
+    this.s.jar -= amount;
+    return this.earn(amount);
+  }
+
+  /** Is today's gift still wrapped? */
+  dailyReady(now = Date.now()) {
+    return this.s.adopted && dayIndex(now) > this.s.daily.day;
+  }
+
+  /** What tomorrow's gift is worth, as a multiplier (shown to build anticipation). */
+  streakMult(streak) {
+    return 1 + 0.25 * ((Math.max(1, streak) - 1) % STREAK_LEN);
+  }
+
+  /**
+   * Open today's gift. Streaks are forgiving: missing a single day keeps the
+   * streak where it was instead of throwing it away.
+   */
+  claimDaily(now = Date.now()) {
+    if (!this.dailyReady(now)) return null;
+    const d = this.s.daily;
+    const today = dayIndex(now);
+    const gap = today - d.day;
+    const kept = d.streak > 0 && gap === 2;
+    d.streak = d.streak > 0 && gap <= 2 ? d.streak + (kept ? 0 : 1) : 1;
+    if (kept) d.streak = Math.max(1, d.streak);
+    d.day = today;
+    const roll = this.rng();
+    const tier = roll < 0.08 ? 'jackpot' : roll < 0.3 ? 'big' : 'nice';
+    const mult = { jackpot: 4, big: 2, nice: 1 }[tier];
+    const amount = this.earn((15 + 10 * this.total) * this.streakMult(d.streak) * mult * this.boost);
+    this.save(now);
+    return { amount, tier, streak: d.streak, kept, day: ((d.streak - 1) % STREAK_LEN) + 1, next: this.streakMult(d.streak + 1) };
+  }
+
+  /** Prize for catching a golden note. */
+  goldenPrize() {
+    const roll = this.rng();
+    const base = (6 + 3 * this.total) * this.boost;
+    if (roll < 0.03) return { kind: 'jackpot', amount: this.earn(base * 8) };
+    if (roll < 0.15) return { kind: 'big', amount: this.earn(base * 3) };
+    if (roll < 0.4) {
+      this.s.frenzy = 30;
+      return { kind: 'frenzy', amount: 0 };
+    }
+    return { kind: 'notes', amount: this.earn(base) };
+  }
+
+  /** Now and then a bit of care pays double. */
+  lucky(amount) {
+    if (amount > 0 && this.rng() < 0.12) {
+      this.s.lucky++;
+      return { amount: amount + this.earn(amount), lucky: true };
+    }
+    return { amount, lucky: false };
+  }
+
+  starCost() {
+    return Math.round(STAR_COST * Math.pow(1.35, this.s.stars));
+  }
+
+  /** After Full Orchestra, notes buy Virtuoso stars: +10% to everything, forever. */
+  buyStar() {
+    if (this.total < 12 || this.s.notes < this.starCost()) return false;
+    this.s.notes -= this.starCost();
+    this.s.stars++;
+    this.save();
+    return true;
   }
 
   /** 0..1 overall happiness. The lowest need drags it down hardest. */
@@ -179,6 +306,8 @@ export class Game {
     }
     if (asleep) n.rest = Math.min(100, n.rest + 5.5 * dt);
     this.s.petPool = Math.min(10, this.s.petPool + dt / 7);
+    this.s.jar = Math.min(this.tipCap(), this.s.jar + (this.tipRate() * dt) / 60);
+    this.s.frenzy = Math.max(0, this.s.frenzy - dt);
   }
 
   earn(amount) {
@@ -220,16 +349,32 @@ export class Game {
   }
 
   concertReward(bonus = 0) {
-    return Math.round((8 + 9 * this.total) * (0.4 + 0.6 * this.mood)) + bonus;
+    return Math.round((8 + 9 * this.total) * (0.4 + 0.6 * this.mood) * this.boost) + bonus;
+  }
+
+  /**
+   * How the crowd reacts. A happy pup and well-timed taps tilt the odds, but
+   * the size of the ovation is always a surprise.
+   */
+  crowdReaction(bonus = 0) {
+    const skill = Math.min(1, this.mood * 0.5 + (bonus / 20) * 0.5);
+    const roll = this.rng();
+    const encore = 0.03 + 0.07 * skill;
+    const standing = encore + 0.12 + 0.18 * skill;
+    if (roll < encore) return { tier: 'encore', mult: 3 };
+    if (roll < standing) return { tier: 'ovation', mult: 2 };
+    if (roll < standing + 0.3) return { tier: 'cheers', mult: 1.5 };
+    return { tier: 'applause', mult: 1 };
   }
 
   finishConcert(bonus = 0) {
-    const reward = this.concertReward(bonus);
+    const reaction = this.crowdReaction(bonus);
+    const reward = this.concertReward(bonus) * reaction.mult;
     this.s.concerts++;
     this.spend('rest', 20);
     this.spend('food', 7);
     this.s.needs.fun = Math.min(100, this.s.needs.fun + 12);
-    return this.earn(reward);
+    return { earned: this.earn(reward), ...reaction };
   }
 
   buy(id) {
