@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>MusicDogs</title>
-<meta name="description" content="MusicDogs — a rhythm game starring a band of very good dogs. Tap, hold and howl along on phone or computer.">
+<meta name="description" content="MusicDogs — raise a pup that is half dog, half instrument, and grow it into a whole orchestra.">
 <meta name="theme-color" content="#14102E">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,17 +13,13 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="assets/icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-<link rel="preload" href="assets/fonts/Fredoka.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 </head>
 <body>
 <!--APP-->
 <div id="app">
-  <canvas id="stage" aria-label="MusicDogs game stage"></canvas>
-
-  <button id="btn-pause" class="icon-btn hud-pause" type="button" aria-label="Pause" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg>
-  </button>
+  <canvas id="stage" aria-label="Your MusicDog on its stage"></canvas>
 
   <div id="ui">
     <!-- Title -->
@@ -33,83 +29,61 @@
           <span class="logo-row logo-music" aria-hidden="true"><i>M</i><i>u</i><i>s</i><i>i</i><i>c</i></span>
           <span class="logo-row logo-dogs" aria-hidden="true"><i>D</i><i>o</i><i>g</i><i>s</i></span>
         </h1>
-        <p class="tagline">The goodest band in the world</p>
+        <p class="tagline" id="tagline">Raise a pup. Grow an orchestra.</p>
       </div>
       <div class="title-bottom">
-        <button id="btn-start" class="btn btn-primary btn-xl" type="button">Tap to Play</button>
-        <p class="hint">Sound on &middot; headphones recommended</p>
+        <button id="btn-start" class="btn btn-primary btn-xl" type="button">Play</button>
+        <p class="hint">Sound on for the full orchestra</p>
       </div>
     </section>
 
-    <!-- Song select -->
-    <section id="screen-select" class="screen" hidden>
-      <header class="topbar">
-        <div class="mini-logo">Music<span>Dogs</span></div>
-        <div class="topbar-right">
-          <div class="star-total" id="star-total" aria-label="Stars earned">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3 6.1 20.6l1.3-6.6L2.5 9.4l6.6-.8z"/></svg>
-            <span id="star-count">0/15</span>
+    <!-- Adoption -->
+    <section id="screen-adopt" class="screen" hidden>
+      <div class="panel adopt">
+        <h2>Adopt your pup</h2>
+        <p class="note">Every MusicDog is born half instrument. Which half should yours start with?</p>
+        <div class="starter-grid" id="starter-grid" role="radiogroup" aria-label="First instrument"></div>
+        <div class="adopt-row">
+          <div class="coats" id="coats" role="radiogroup" aria-label="Coat colour"></div>
+          <label class="name-field"><span>Name</span><input id="pup-name-input" type="text" maxlength="14" autocomplete="off" spellcheck="false" value="Biscuit"></label>
+        </div>
+        <button id="btn-adopt" class="btn btn-primary" type="button">Adopt</button>
+      </div>
+    </section>
+
+    <!-- In-game HUD -->
+    <div id="hud" hidden>
+      <div class="hud-top">
+        <div class="id-card">
+          <b id="pup-name">Biscuit</b>
+          <span id="pup-rank">Solo Pup</span>
+        </div>
+        <div class="hud-right">
+          <div class="notes-pill" aria-label="Notes">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a3 3 0 1 1-2-2.83V5.2l11-2.4v11.7a3 3 0 1 1-2-2.83V7.1L9 8.6z"/></svg>
+            <span id="notes">0</span>
           </div>
-          <button id="btn-howto" class="icon-btn" type="button" aria-label="How to play">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.2 9.2a2.9 2.9 0 1 1 4.6 2.4c-1 .7-1.8 1.3-1.8 2.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="18" r="1.5"/></svg>
-          </button>
           <button id="btn-settings" class="icon-btn" type="button" aria-label="Settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="12" r="2.2"/><circle cx="17" cy="17" r="2.2"/></svg>
           </button>
         </div>
-      </header>
-      <div class="select-main">
-        <div class="carousel-wrap">
-          <button class="nav-arrow nav-prev" id="nav-prev" type="button" aria-label="Previous song">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <div class="carousel" id="carousel" tabindex="0" aria-label="Songs"></div>
-          <button class="nav-arrow nav-next" id="nav-next" type="button" aria-label="Next song">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
-        <div class="select-footer">
-          <div class="diff-row" id="diff-row" role="radiogroup" aria-label="Difficulty"></div>
-          <button id="btn-play" class="btn btn-primary btn-xl" type="button">Play</button>
-        </div>
       </div>
-    </section>
+      <div class="needs" id="needs"></div>
+      <button class="goal" id="goal" type="button"></button>
+      <div class="mode-hint" id="mode-hint" hidden></div>
+      <nav class="dock" id="dock" aria-label="Care for your pup"></nav>
+    </div>
 
-    <!-- Results -->
-    <section id="screen-results" class="screen" hidden>
-      <div class="panel results">
-        <div class="res-head">
-          <h2 id="res-title">Song</h2>
-          <span class="pill" id="res-diff">Normal</span>
+    <!-- Orchestra (upgrades) -->
+    <div id="sheet-orchestra" class="modal sheet" hidden>
+      <div class="panel orchestra">
+        <div class="panel-head">
+          <div><h2>Orchestra</h2><p class="note" id="orch-sub">1 of 12 instruments grown</p></div>
+          <button class="icon-btn close" data-close type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg></button>
         </div>
-        <div class="res-main">
-          <div class="grade" id="res-grade">A</div>
-          <div class="res-score-col">
-            <div class="res-stars" id="res-stars" aria-label="Stars"></div>
-            <div class="res-score" id="res-score">0</div>
-            <div class="res-flags" id="res-flags"></div>
-          </div>
-        </div>
-        <div class="res-stats">
-          <div><span>Accuracy</span><b id="res-acc">0%</b></div>
-          <div><span>Max combo</span><b id="res-combo">0</b></div>
-        </div>
-        <div class="res-break" id="res-break"></div>
-        <div class="btn-row">
-          <button id="btn-retry" class="btn btn-ghost" type="button">Retry</button>
-          <button id="btn-songs" class="btn btn-primary" type="button">Songs</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- Pause -->
-    <div id="modal-pause" class="modal" hidden>
-      <div class="panel small">
-        <h2>Paused</h2>
-        <button id="btn-resume" class="btn btn-primary" type="button">Resume</button>
-        <button id="btn-restart" class="btn btn-ghost" type="button">Restart</button>
-        <button id="btn-pause-settings" class="btn btn-ghost" type="button">Settings</button>
-        <button id="btn-quit" class="btn btn-ghost" type="button">Quit to songs</button>
+        <div class="orch-grid" id="orch-grid"></div>
+        <div class="orch-detail" id="orch-detail"></div>
       </div>
     </div>
 
@@ -120,57 +94,21 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg></button></div>
         <label class="field"><span>Music <b id="val-music">80</b></span><input id="set-music" type="range" min="0" max="100" step="5"></label>
         <label class="field"><span>Sound effects <b id="val-sfx">80</b></span><input id="set-sfx" type="range" min="0" max="100" step="5"></label>
-        <label class="field"><span>Note speed <b id="val-speed">5</b></span><input id="set-speed" type="range" min="1" max="10" step="1"></label>
-        <label class="field"><span>Audio delay <b id="val-offset">0 ms</b></span><input id="set-offset" type="range" min="-150" max="300" step="5"></label>
-        <p class="note">Wireless headphones lag behind your taps. If notes feel late, raise the delay or let the dogs measure it.</p>
-        <button id="btn-calibrate" class="btn btn-ghost" type="button">Measure delay by tapping</button>
         <div class="toggles">
-          <label class="toggle"><input id="set-haptics" type="checkbox"><span>Vibration</span></label>
-          <label class="toggle"><input id="set-reduced" type="checkbox"><span>Calmer effects</span></label>
+          <label class="toggle"><input id="set-low" type="checkbox"><span>Battery saver graphics</span></label>
+        </div>
+        <div class="howto-mini">
+          <p><b>Stroke</b> your pup to pet it. <b>Tap</b> an instrument part to play it.</p>
+          <p><b>Drag</b> the background to look around. Pinch or scroll to zoom.</p>
         </div>
         <div class="btn-row">
-          <button id="btn-fullscreen" class="btn btn-ghost" type="button">Fullscreen</button>
-          <button id="btn-reset" class="btn btn-ghost danger" type="button">Reset progress</button>
+          <a id="link-classic" class="btn btn-ghost" href="classic/">Rhythm game</a>
+          <button id="btn-reset" class="btn btn-ghost danger" type="button">Start over</button>
         </div>
-      </div>
-    </div>
-
-    <!-- Calibration -->
-    <div id="modal-calibrate" class="modal" hidden>
-      <div class="panel small">
-        <h2>Tap with the beat</h2>
-        <p class="note">Listen to the click and tap the paw in time. Space works too.</p>
-        <button id="cal-pad" class="cal-pad" type="button" aria-label="Tap in time">
-          <svg viewBox="-1 -1 2 2" aria-hidden="true"><ellipse cx="0" cy=".2" rx=".34" ry=".28"/><ellipse cx="-.36" cy="-.16" rx=".13" ry=".17" transform="rotate(-20 -.36 -.16)"/><ellipse cx="-.13" cy="-.38" rx=".13" ry=".18"/><ellipse cx=".13" cy="-.38" rx=".13" ry=".18"/><ellipse cx=".36" cy="-.16" rx=".13" ry=".17" transform="rotate(20 .36 -.16)"/></svg>
-        </button>
-        <p class="cal-status" id="cal-status">0 / 12 taps</p>
-        <div class="btn-row">
-          <button id="cal-cancel" class="btn btn-ghost" type="button">Cancel</button>
-          <button id="cal-apply" class="btn btn-primary" type="button" disabled>Use it</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- How to play -->
-    <div id="modal-howto" class="modal" hidden>
-      <div class="panel">
-        <div class="panel-head"><h2>How to play</h2><button class="icon-btn close" data-close type="button" aria-label="Close">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg></button></div>
-        <ol class="howto">
-          <li><span class="how-ico tap"></span><div><b>Tap on the beat</b><p>Paw notes slide down four lanes. Hit a lane when its note lands in the ring.</p></div></li>
-          <li><span class="how-ico hold"></span><div><b>Hold the long ones</b><p>Notes with a tail want you to keep holding until the tail runs out.</p></div></li>
-          <li><span class="how-ico howl"></span><div><b>Fill the Howl Meter</b><p>Clean hits charge it. When it is full the band howls and every point counts double.</p></div></li>
-        </ol>
-        <div class="controls">
-          <div><b>Touch</b><span>Tap anywhere in a lane</span></div>
-          <div><b>Keyboard</b><span><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd> or arrow keys &middot; <kbd>Esc</kbd> pauses</span></div>
-        </div>
-        <button class="btn btn-primary" data-close type="button">Got it</button>
       </div>
     </div>
 
     <div id="toast" class="toast" role="status" hidden></div>
-    <div id="resume-count" class="resume-count" hidden></div>
   </div>
 </div>
 <!--/APP-->

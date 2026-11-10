@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- Dev tool: look at any pup build.  /tools/viewer.html?levels=3,3,3,3&coat=biscuit&az=0.6&pose=sit -->
+<meta charset="utf-8">
+<title>MusicDogs pup viewer</title>
+<style>html,body{margin:0;height:100%;background:#222}canvas{width:100%;height:100%;display:block}</style>
+<canvas id="c"></canvas>
+<script type="importmap">{"imports":{"three":"../vendor/three.module.min.js"}}</script>
+<script type="module">
+import { World } from '../src/world.js';
+import { Dog } from '../src/dog/dog.js';
+const q = new URLSearchParams(location.search);
+const [perc, str, wood, brass] = (q.get('levels') || '0,0,0,0').split(',').map(Number);
+const world = new World(document.getElementById('c'));
+const dog = new Dog();
+dog.build({ perc, str, wood, brass }, q.get('coat') || 'biscuit');
+world.scene.add(dog.root);
+dog.pose = q.get('pose') || 'stand';
+dog.yaw = Number(q.get('yaw') || 0);
+dog.pos.set(0, 0, 0.2);
+world.cam.az = Number(q.get('az') || 0.55);
+world.cam.el = Number(q.get('el') || 0.3);
+world.cam.zoom = Number(q.get('zoom') || 1);
+if (q.get('night')) world.nightTarget = 1;
+if (q.get('happy')) dog.happy = 999;
+if (q.get('icon')) world.cam.lift = 0.3; // frame the face for app icons
+world.resize();
+addEventListener('resize', () => world.resize());
+let last = performance.now();
+const look = world.camera.position;
+(function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  dog.update(dt, { beat: 0, mood: 0.8, lookAt: look, dancing: !!q.get('dance') });
+  world.update(dt, dog.pos);
+  world.render();
+  window.__ready = true;
+  requestAnimationFrame(frame);
+})(last);
+</script>

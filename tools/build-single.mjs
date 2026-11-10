@@ -1,22 +1,35 @@
-// Bundles the whole game into single self-contained HTML files:
-//   dist/MusicDogs.html          – double-click to play, works offline, easy to share
-//   dist/MusicDogs.fragment.html – same game without <html>/<head>, for hosts that wrap pages themselves
+// Bundles the 3D game into single self-contained HTML files:
+//   dist/MusicDogs.html          – double-click to play, works offline (three.js bundled in)
+//   dist/MusicDogs.fragment.html – no <html>/<head>, loads three.js from cdnjs; for hosts
+//                                   that wrap pages themselves
 import { build } from 'esbuild';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
 const root = new URL('..', import.meta.url);
 const read = (p, enc = 'utf8') => readFile(new URL(p, root), enc);
+const THREE_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.159.0/three.min.js';
 
-const bundle = await build({
-  entryPoints: [new URL('src/main.js', root).pathname],
-  bundle: true,
-  minify: true,
-  format: 'iife',
-  target: 'es2019',
-  write: false,
-  legalComments: 'none',
-});
-const js = bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
+const globalThree = {
+  name: 'global-three',
+  setup(b) {
+    b.onResolve({ filter: /^three$/ }, () => ({ path: 'three', namespace: 'global-three' }));
+    b.onLoad({ filter: /.*/, namespace: 'global-three' }, () => ({ contents: 'module.exports = window.THREE;', loader: 'js' }));
+  },
+};
+
+async function bundle(external) {
+  const out = await build({
+    entryPoints: [new URL('src/main.js', root).pathname],
+    bundle: true,
+    minify: true,
+    format: 'iife',
+    target: 'es2019',
+    write: false,
+    legalComments: 'none',
+    plugins: external ? [globalThree] : [],
+  });
+  return out.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
+}
 
 const font = (await read('assets/fonts/Fredoka.woff2', null)).toString('base64');
 const icon = (await read('assets/icons/icon-192.png', null)).toString('base64');
@@ -26,10 +39,7 @@ if (!css.includes('data:font/woff2')) throw new Error('Font was not inlined');
 const html = await read('index.html');
 const app = html.slice(html.indexOf('<!--APP-->') + 10, html.indexOf('<!--/APP-->')).trim();
 if (!app.includes('id="app"')) throw new Error('App markup not found in index.html');
-
-const body = `${app}
-<script>window.__MUSICDOGS_SINGLE_FILE = true;</script>
-<script>${js}</script>`;
+const flag = '<script>window.__MUSICDOGS_SINGLE_FILE = true;</script>';
 
 const standalone = `<!doctype html>
 <html lang="en">
@@ -45,20 +55,25 @@ const standalone = `<!doctype html>
 <style>${css}</style>
 </head>
 <body>
-${body}
+${app}
+${flag}
+<script>${await bundle(false)}</script>
 </body>
 </html>
 `;
 
-const fragment = `<title>MusicDogs</title>
+const fragment = `<title>MusicDogs 3D</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>${css}</style>
-${body}
+${app}
+${flag}
+<script src="${THREE_CDN}"></script>
+<script>${await bundle(true)}</script>
 `;
 
 await mkdir(new URL('dist/', root), { recursive: true });
 await writeFile(new URL('dist/MusicDogs.html', root), standalone);
-await writeFile(new URL('dist/MusicDogs.fragment.html', root), fragment);
+await writeFile(new URL('dist/MusicDogs3D.fragment.html', root), fragment);
 const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(0)} KB`;
-console.log(`dist/MusicDogs.html           ${kb(standalone)}`);
-console.log(`dist/MusicDogs.fragment.html  ${kb(fragment)}`);
+console.log(`dist/MusicDogs.html             ${kb(standalone)}`);
+console.log(`dist/MusicDogs3D.fragment.html  ${kb(fragment)}`);

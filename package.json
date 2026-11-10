@@ -1,15 +1,17 @@
 {
   "name": "musicdogs",
-  "version": "1.0.0",
-  "description": "MusicDogs — a rhythm game starring a band of very good dogs.",
+  "version": "2.0.0",
+  "description": "MusicDogs \u2014 raise a pup that is half dog, half instrument, and grow it into an orchestra.",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node tools/serve.mjs",
     "build": "node tools/build-single.mjs",
-    "test": "node tests/smoke.mjs"
+    "build:classic": "node classic/build-single.mjs",
+    "test": "node tests/game.mjs && node classic/tests/smoke.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "three": "^0.159.0"
   }
 }

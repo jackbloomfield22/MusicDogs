@@ -1,33 +1,47 @@
 # MusicDogs
 
-A rhythm game starring a band of very good dogs. Runs in any modern browser on
-phones, tablets and computers. No installs, no accounts, no downloads beyond
-the page itself (about 230 KB).
+A 3D pet game where every dog is half instrument. Look after your pup, earn
+notes, and grow new instrument parts until one small dog is an entire
+orchestra.
 
-Biscuit the corgi drums, Waffles the pug holds down the bass, Luna the husky
-is on keys and Domino the dalmatian shreds guitar. They play; you keep them in
-time.
+Runs in any modern browser on phones, tablets and computers. No installs and
+no accounts.
 
-## How to play
+## The game
 
-- Paw notes slide down four lanes. Hit a lane when its note lands in the ring.
-- Notes with a tail are holds: keep pressing until the tail runs out.
-- Clean hits fill the **Howl Meter**. When it is full the band howls, puts on
-  sunglasses, and every point counts double.
-- Miss a note and the lead instrument drops out of the mix until you are back
-  on the beat.
+You adopt a pup that is born half instrument: a **Drum Belly**, a **Violin
+Tail**, **Clarinet Legs** or a **Trumpet Snout**. From there:
+
+- **Care for it.** Feed it, play fetch, scrub it in the bath, tuck it in for a
+  nap, and stroke it. Each need you top up pays out notes, and more when the
+  pup really needed it.
+- **Hold concerts.** The pup performs its theme with every instrument it has
+  grown. A happy, rested pup with a bigger orchestra draws a bigger crowd.
+  Tap the instrument parts as they light up for bonus notes.
+- **Grow the orchestra.** Spend notes on twelve instrument parts across four
+  families. Each one changes the dog's body and adds its own line to the
+  music:
+
+| Family | I | II | III |
+|---|---|---|---|
+| Percussion | Drum Belly | Cymbal Ears | Xylophone Ribs |
+| Strings | Violin Tail | Cello Spine | Harp Sail |
+| Woodwinds | Clarinet Legs | Bassoon Legs | Pan-Flute Mane |
+| Brass | Trumpet Snout | Horn Collar | Sousaphone Coil |
+
+A pup goes from Solo Pup through Duo, Trio and Quartet all the way to Full
+Orchestra. Needs drift down slowly while you are away, but a pup is never
+hurt by neglect.
+
+### Controls
 
 | | |
 |---|---|
-| Touch | Tap anywhere in a lane (multi-touch, works in portrait and landscape) |
-| Keyboard | `D` `F` `J` `K` or the arrow keys. `Esc` pauses. |
-| Menus | Arrow keys pick a song and difficulty, `Enter` plays |
-
-Five stages unlock as you earn stars: Backyard Bounce, Moonlight Howl, Neon
-Bark, Fetch Frenzy and Cosmic Zoomies, each in Easy, Normal and Hard.
-
-If you use wireless headphones, open **Settings → Measure delay by tapping**
-once. Bluetooth audio lags, and the game will compensate.
+| Stroke the pup | Pet it |
+| Tap an instrument part | Play that instrument |
+| Drag the background | Look around |
+| Pinch or scroll | Zoom |
+| Keys `1`–`6` | Feed, Play, Wash, Sleep, Concert, Grow |
 
 ## Run it
 
@@ -35,8 +49,8 @@ once. Bluetooth audio lags, and the game will compensate.
 npm start
 ```
 
-Then open http://localhost:8080. Any static file server works too, since the
-game is plain HTML, CSS and JavaScript modules with no build step.
+Then open http://localhost:8080. The game is plain HTML, CSS and JavaScript
+modules with no build step, so any static file server works.
 
 To put it online, enable GitHub Pages for this repository (Settings → Pages →
 Deploy from a branch → root). On a phone, "Add to Home Screen" installs it as
@@ -57,25 +71,24 @@ double-click, email or drop on any host.
 
 ## How it is built
 
-Everything you see and hear is generated in code. There are no image or audio
-files.
+Everything you see and hear is generated in code. There are no model, image
+or audio files.
 
-- **Music** (`src/audio`): each song is a short data description (chords,
-  drum grid, bass pattern, melody). A Web Audio synthesiser plays it with a
-  sample-accurate scheduler: drums, four bass and five lead sounds, pads,
-  side-chain pumping, tempo-synced delay and reverb. Barks and howls are
-  synthesised too.
-- **Charts** (`src/audio/compile.js`): note charts come from the same melody
-  the synth plays, so taps always match what you hear. Pitch maps to lanes,
-  long notes become holds, and each difficulty thins or thickens the pattern.
-- **Timing** (`src/game/play.js`, `src/main.js`): judging runs on the audio
-  clock, corrected for output latency and input event delay. Windows are
-  ±50 ms perfect, ±100 ms great, ±150 ms good.
-- **Art** (`src/render`): the dogs, five stages, highway, particles and HUD
-  are drawn on one canvas and scale to any screen. Menus are regular HTML
-  for crisp text and accessibility.
-- **Saving** (`src/storage.js`): best scores and settings stay in the
-  browser's local storage.
+- **The pup** (`src/dog`): a small rig assembled from primitive shapes. Every
+  body part has a plain version and an instrument version (`parts.js`), so
+  the dog is rebuilt from its upgrade levels. Walking, sitting, sleeping,
+  eating, dancing and reacting to touch are all procedural animation
+  (`dog.js`).
+- **The stage** (`src/world.js`): [three.js](https://threejs.org) scene with
+  soft shadows, a day and night cycle, props, an orbit camera and sprite
+  particles.
+- **The orchestra** (`src/audio`): one synthesised Web Audio voice per
+  instrument part and a sequencer that plays "Pup's Theme". Each part has its
+  own line in the score, and only the parts the dog has grown are played.
+- **The rules** (`src/game.js`): needs, rewards, prices and saving, kept free
+  of rendering code so they can be tested directly.
+
+Progress is saved in the browser's local storage.
 
 ## Tests
 
@@ -83,10 +96,18 @@ files.
 npm test
 ```
 
-Checks every song and difficulty: charts are valid and playable, a perfect
-run earns S+, an idle run earns nothing, and the judging windows behave.
+Covers the upgrade catalogue, buying rules, needs, saving, time away, the
+score (every note in key and in range), and a simulated play session that
+must reach Full Orchestra in a sensible time.
+
+## Classic rhythm game
+
+The first MusicDogs, a four-lane rhythm game with a band of dogs, lives on in
+[`classic/`](classic/). It is linked from the Settings menu, or open
+`/classic/` directly. `npm run build:classic` makes its one-file version.
 
 ## Credits
 
-Font: [Fredoka](https://github.com/hafontia/Fredoka-One), SIL Open Font
-License (see `assets/fonts/OFL.txt`).
+- [three.js](https://threejs.org), MIT License (see `vendor/three.LICENSE`)
+- Font: [Fredoka](https://github.com/hafontia/Fredoka-One), SIL Open Font
+  License (see `assets/fonts/OFL.txt`)
