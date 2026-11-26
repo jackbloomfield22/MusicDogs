@@ -8,6 +8,7 @@ import { G, part } from './dog/build.js';
 import { Orchestra } from './audio/orchestra.js';
 import { Game, UPGRADES, FAMILIES, upgradeById } from './game.js';
 import { UI } from './ui.js';
+import { PLACES, placeById, NPCS, SOUVENIRS, LEGENDS, cosmeticById } from './lore.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -18,6 +19,9 @@ const game = new Game();
 game.load();
 const world = new World(canvas);
 const dog = new Dog();
+const npc = new Dog(); // whoever lives on the isle you are visiting
+npc.root.visible = false;
+world.scene.add(npc.root);
 world.scene.add(dog.root);
 const audio = new Orchestra();
 
@@ -41,6 +45,7 @@ const app = {
   pointerLook: null,
   lookT: 0,
   lastPulse: {}, // when each instrument last sounded (for concert bonus taps)
+  npcId: null,
   gold: null, // the golden note drifting across the stage, if any
   goldT: 22, // seconds until the next one
   wasHarmony: false,
@@ -275,6 +280,7 @@ function updateEat(dt) {
     hearts(3);
     audio.bark(1.4, 0.35);
     careNote(game.earn((s.needs.food - app.careFrom) * 0.3));
+    game.bump('care');
     questDone(2);
     setMode('free');
     goCenter();
@@ -336,6 +342,7 @@ function updatePlay() {
         hearts(2);
         game.spend('rest', 3);
         careNote(game.care('fun', 17, 0.3));
+        game.bump('care');
         questDone(2);
         if (game.s.needs.rest < 8) {
           ui.toast(`${game.s.name} is all played out.`);
@@ -409,6 +416,7 @@ function endWash(finished) {
     audio.splash();
     world.burst('drop', dog.anchor('body', new THREE.Vector3()), 14, { size: 0.16, up: 2.2, speed: 2.2, gravity: 7, life: 0.8 });
     setTimeout(() => world.burst('star', dog.anchor('head', new THREE.Vector3()), 8, { colors: ['#FFFFFF', '#9BE4FF', '#FFE45C'], size: 0.22, up: 1.2, speed: 1.2, life: 1 }), 900);
+    game.bump('care');
     questDone(2);
   }
   careNote(game.earn((game.s.needs.clean - app.careFrom) * 0.25));
@@ -453,23 +461,38 @@ function startConcert() {
   const why = game.canConcert();
   if (why) {
     audio.ui('no');
-    ui.toast(why === 'rest' ? `${game.s.name} is too tired to perform. Time for a nap.` : `${game.s.name} can't play on an empty tummy.`);
+    const away = game.s.place !== 'home' ? ' Sail home first.' : '';
+    ui.toast(why === 'rest' ? `${game.s.name} is too tired to perform. Time for a nap.${away}` : `${game.s.name} can't play on an empty tummy.${away}`);
     return;
   }
   setMode('concert', 'Tap the parts as they light up for bonus notes');
   app.bonus = 0;
   goCenter(() => {
     if (app.mode !== 'concert') return;
+    // on tour, the local plays along: you hear their whole section
+    const who = app.npcId && NPCS[app.npcId];
+    if (who) {
+      const L = game.s.levels;
+      audio.setLevels({ perc: Math.max(L.perc, who.levels.perc), str: Math.max(L.str, who.levels.str), wood: Math.max(L.wood, who.levels.wood), brass: Math.max(L.brass, who.levels.brass) });
+      npc.faceYaw = world.cam.az;
+    }
     audio.concert(game.s.concerts % 2, endConcert);
-    world.cam.zoomTarget = 0.9;
+    world.cam.zoomTarget = who ? 1.0 : 0.9;
   });
 }
 
 function endConcert() {
   if (app.mode !== 'concert') return;
   audio.setMode('idle');
+  audio.setLevels(game.s.levels);
   audio.applause();
-  const { earned, tier } = game.finishConcert(app.bonus);
+  const openBefore = PLACES.filter((p) => game.placeOpen(p.id)).map((p) => p.id);
+  const result = game.finishConcert(app.bonus);
+  const { earned, tier } = result;
+  if (npc.root.visible) {
+    npc.happy = 2;
+    npc.jump(2.6);
+  }
   dog.happy = 2;
   dog.jump(3);
   const big = tier === 'ovation' || tier === 'encore';
@@ -486,6 +509,14 @@ function endConcert() {
     ovation: `Standing ovation! Double tips: ${earned} notes`,
     encore: `Encore! Encore! Triple tips: ${earned} notes`,
   }[tier]);
+  const here = placeById(result.place);
+  if (result.newStars) {
+    audio.ui('shimmer');
+    ui.toast(`New fame star at ${here.name}! ${'★'.repeat(result.stars)} +${result.gems} gems`);
+  }
+  for (const p of PLACES) {
+    if (!openBefore.includes(p.id) && game.placeOpen(p.id)) ui.toast(`The cloud-ferry now sails to ${p.name}. Open the Map!`);
+  }
   world.cam.zoomTarget = 0.8;
   questDone(3);
   setMode('free');
@@ -546,6 +577,9 @@ function updateGoal() {
   }
   const ready = UPGRADES.find((u) => game.status(u.id) === 'ready');
   if (ready) return ui.setGoal(`You can grow <b>${ready.name}</b>! Tap Grow`, true, 1);
+  if (s.visited.length < 2) return ui.setGoal('Open the <b>Map</b> and sail somewhere new');
+  const fresh = PLACES.find((p) => game.placeOpen(p.id) && !s.visited.includes(p.id));
+  if (fresh) return ui.setGoal(`A new isle is open: sail to <b>${fresh.name}</b>`, true);
   const next = UPGRADES.find((u) => game.status(u.id) === 'poor');
   return ui.setGoal(`Next: <b>${next.name}</b> · ${game.nextCost() - s.notes} more notes`, false, s.notes / game.nextCost());
 }
@@ -580,7 +614,7 @@ canvas.addEventListener('pointerdown', (e) => {
     gesture = null;
     return;
   }
-  const hit = world.pick(...ndc(e), dog.root);
+  const hit = world.pick(...ndc(e), dog.root, npc.root);
   gesture = { id: e.pointerId, kind: hit && hit.onDog ? 'dog' : 'orbit', x: e.clientX, y: e.clientY, moved: 0, hit, t: performance.now() };
   if (hit && hit.onDog && app.mode === 'wash') scrub(hit.point);
 });
@@ -608,7 +642,7 @@ window.addEventListener('pointermove', (e) => {
   }
   // stroking the dog
   if (app.screen !== 'hud' || dog.asleep || app.mode === 'concert' || app.mode === 'eat') return;
-  const hit = world.pick(...ndc(e), dog.root);
+  const hit = world.pick(...ndc(e), dog.root, npc.root);
   if (!hit || !hit.onDog) return;
   app.pointerLook = hit.point.clone();
   app.lookT = 0.6;
@@ -642,6 +676,7 @@ function pointerEnd(e) {
   }
   if (tag === 'jar') return collectTips();
   if (tag === 'gift') return openGift();
+  if (tag === 'npc') return app.mode === 'free' ? talk() : undefined;
   if (dog.asleep || app.mode === 'eat') return;
   if (tag === 'foam') return scrub(point);
   if (tag === 'pet') {
@@ -681,6 +716,12 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') ui.closeModals();
   if (app.screen === 'title' && (e.code === 'Enter' || e.code === 'Space') && !(e.target && e.target.tagName === 'BUTTON')) $('btn-start').click();
   if (app.screen !== 'hud' || ui.anyModal()) return;
+  if (ui.talking) {
+    if (e.code === 'Enter' || e.code === 'Space') $('talk-next').click();
+    return;
+  }
+  if (e.code === 'KeyM' && app.mode === 'free') ui.openMap();
+  if (e.code === 'KeyJ') ui.openJournal();
   const map = { Digit1: 'feed', Digit2: 'play', Digit3: 'wash', Digit4: 'sleep', Digit5: 'concert', Digit6: 'grow' };
   if (map[e.code]) action(map[e.code]);
   if (e.code === 'ArrowLeft') world.cam.az -= 0.2;
@@ -689,8 +730,176 @@ window.addEventListener('keydown', (e) => {
 
 // ----------------------------------------------------------------------- UI
 
-function action(id) {
+// -------------------------------------------------------------------- world
+
+function rebuildDog() {
+  dog.build(game.s.levels, game.s.coat, game.s.wearing);
+}
+
+/** Dress the stage for wherever the pup is, and bring out whoever lives there. */
+function applyPlace() {
+  const place = placeById(game.s.place);
+  world.setPlace(place);
+  world.setSouvenirs(game.s.souvenirs);
+  const who = place.npc ? NPCS[place.npc] : null;
+  if (who && app.npcId !== place.npc) npc.build(who.levels, who.coat, {});
+  app.npcId = place.npc || null;
+  npc.root.visible = !!who;
+  if (who) {
+    // stand beside the pup as seen from the camera, wherever it is looking from
+    const az = world.cam.az;
+    const wide = canvas.clientWidth > canvas.clientHeight * 0.9;
+    const lat = wide ? -1.55 : -0.92, depth = wide ? -0.15 : -0.6;
+    npc.pos.set(SPOTS.center[0] + Math.cos(az) * lat + Math.sin(az) * depth, 0, SPOTS.center[1] - Math.sin(az) * lat + Math.cos(az) * depth);
+    npc.yaw = az + 0.3;
+    app.npcYaw = npc.yaw;
+    npc.pose = 'stand';
+  }
+  dog.stop();
+  dog.carry = null;
+  dog.pos.set(SPOTS.center[0], 0, SPOTS.center[1]);
+  dog.yaw = world.cam.az;
+  app.gold = null;
+  world.golden.visible = false;
+}
+
+function travel(id) {
   if (app.screen !== 'hud') return;
+  if (app.mode !== 'free' || ui.talking) {
+    audio.ui('no');
+    ui.toast('Finish what you are doing first.');
+    return;
+  }
+  const place = placeById(id);
+  if (!game.placeOpen(id) || id === game.s.place) return;
+  ui.closeModals();
+  audio.ui('whoosh');
+  ui.fade(place.name, () => {
+    const r = game.travel(id);
+    applyPlace();
+    ui.refresh();
+    updateGoal();
+    setTimeout(() => {
+      audio.ui('shimmer');
+      dog.happy = 1.5;
+      dog.jump(2.4);
+      if (r && r.first) {
+        ui.toast(`New page in your Songbook: ${place.name}`);
+        if (place.npc) ui.toast('Someone here would like to meet you. Tap Talk.');
+      }
+      if (npc.root.visible) {
+        npc.jump(2.2);
+        audio.bark(NPCS[place.npc].pitch, 0.3);
+      }
+    }, 900);
+  });
+}
+
+function talk() {
+  if (!app.npcId || ui.talking || app.mode !== 'free') return;
+  dog.stop();
+  dog.pose = 'sit';
+  dog.face(npc.pos.x, npc.pos.z);
+  npc.face(dog.pos.x, dog.pos.z);
+  const res = game.talk(app.npcId);
+  world.cam.zoomTarget = 0.96;
+  ui.showTalk(res, () => {
+    dog.pose = 'stand';
+    dog.faceYaw = world.cam.az;
+    npc.faceYaw = app.npcYaw;
+    world.cam.zoomTarget = 0.8;
+    const r = res.reward;
+    if (r) {
+      audio.fanfare(false);
+      dog.happy = 2;
+      dog.jump(2.6);
+      if (r.notes) note(r.notes);
+      if (r.gems) ui.toast(`${res.name} gave you ${r.notes} notes and ${r.gems} gems`);
+      if (r.souvenir) {
+        world.setSouvenirs(game.s.souvenirs);
+        ui.toast(`A keepsake for your porch: ${SOUVENIRS[r.souvenir].name}`);
+      }
+      if (r.legend) ui.toast(`New legend in your Songbook: ${LEGENDS.find((l) => l.id === r.legend).title}`);
+      if (r.cosmetic) {
+        if (game.s.wearing[cosmeticById(r.cosmetic).slot] !== r.cosmetic) game.wear(r.cosmetic);
+        rebuildDog();
+        dog.popIn(`fit-${r.cosmetic}`);
+        ui.toast(`${res.name} gave you the ${cosmeticById(r.cosmetic).name}`);
+      }
+    }
+    ui.refresh();
+    updateGoal();
+  });
+  ui.refresh();
+}
+
+// ------------------------------------------------------------ pretend store
+
+function confirmPack(sku) {
+  const pack = game.buyPack(sku);
+  if (!pack) return audio.ui('no');
+  audio.ui('coins');
+  setTimeout(() => audio.fanfare(false), 250);
+  if (pack.cosmetic) {
+    if (game.s.wearing[cosmeticById(pack.cosmetic).slot] !== pack.cosmetic) game.wear(pack.cosmetic);
+    rebuildDog();
+    dog.popIn(`fit-${pack.cosmetic}`);
+  }
+  if (pack.notes) ui.bumpNotes();
+  dog.happy = 2;
+  dog.jump(2.6);
+  ui.toast(`Pretend purchase: ${pack.name}. +${pack.gems} gems, nothing charged`);
+  ui.refresh();
+  ui.openShop();
+  return undefined;
+}
+
+function buyBoost(id) {
+  const r = game.buyBoost(id);
+  if (!r) return audio.ui('no');
+  audio.ui('shimmer');
+  if (id === 'hamper') {
+    hearts(5);
+    dog.happy = 2;
+    ui.toast(`${game.s.name} is fed, clean, rested and happy`);
+  } else if (id === 'magnet') ui.toast('Tip Magnet on: double tips for 10 minutes');
+  else if (id === 'ticket') ui.toast('Encore Ticket ready for your next concert');
+  else if (id === 'sack') {
+    note(r.detail);
+    ui.toast(`A sack of ${r.detail} notes`);
+  } else if (id === 'jumbo') ui.toast('Jumbo Jar: your tip jar now holds twice as much');
+  ui.refresh();
+  ui.openShop();
+  return undefined;
+}
+
+function buyCosmetic(id) {
+  if (!game.buyCosmetic(id)) return audio.ui('no');
+  audio.fanfare(false);
+  rebuildDog();
+  dog.popIn(`fit-${id}`);
+  dog.happy = 2;
+  dog.jump(2.4);
+  ui.toast(`${game.s.name} is wearing the ${cosmeticById(id).name}`);
+  ui.refresh();
+  ui.openShop();
+  return undefined;
+}
+
+function wearItem(id) {
+  if (!game.wear(id)) return;
+  audio.ui('tap');
+  rebuildDog();
+  if (game.s.wearing[cosmeticById(id).slot] === id) dog.popIn(`fit-${id}`);
+  ui.openShop();
+}
+
+function action(id) {
+  if (app.screen !== 'hud' || ui.talking) return;
+  const away = game.s.place !== 'home';
+  if (id === 'talk') return away ? (audio.ui('tap'), talk()) : undefined;
+  if (id === 'home') return away ? travel('home') : undefined;
+  if (away && ['feed', 'play', 'wash', 'sleep'].includes(id)) return undefined;
   if (id === 'grow') {
     if (app.mode !== 'free') return;
     audio.ui('tap');
@@ -709,9 +918,9 @@ function action(id) {
 function enterGame() {
   app.screen = 'hud';
   app.spin = false;
-  dog.build(game.s.levels, game.s.coat);
-  dog.pos.set(SPOTS.center[0], 0, SPOTS.center[1]);
-  dog.yaw = world.cam.az;
+  rebuildDog();
+  game.ensureTasks();
+  applyPlace();
   audio.setLevels(game.s.levels);
   audio.setMode('idle');
   world.cam.zoomTarget = null;
@@ -751,12 +960,26 @@ const ui = new UI(
     },
     action,
     goal: () => {
-      if (game.s.quest >= 4 && app.mode === 'free') action('grow');
+      if (game.s.quest < 4 || app.mode !== 'free') return;
+      const canGrow = UPGRADES.some((u) => game.status(u.id) === 'ready');
+      const fresh = PLACES.some((p) => game.placeOpen(p.id) && !game.s.visited.includes(p.id));
+      if (!canGrow && fresh) ui.openMap();
+      else action('grow');
     },
     buy,
     tips: collectTips,
     gift: openGift,
     star: buyStar,
+    travel,
+    spoke: (res) => {
+      audio.bark(NPCS[app.npcId] ? NPCS[app.npcId].pitch : 1.2, 0.3);
+      npc.happy = 0.8;
+      npc.tilt = Math.random() < 0.5 ? 0.2 : -0.2;
+    },
+    confirmPack,
+    boost: buyBoost,
+    cosmetic: buyCosmetic,
+    wear: wearItem,
     hear: (id) => {
       audio.playPart(id);
       dog.pulse(id, 1.2);
@@ -776,6 +999,8 @@ const ui = new UI(
       world.gift.visible = false;
       world.halo.forEach((sp) => (sp.visible = false));
       game.reset();
+      applyPlace();
+      dog.wearing = {};
       app.screen = 'adopt';
       setMode('free');
       ui.show('adopt');
@@ -789,7 +1014,7 @@ const ui = new UI(
 function preview(choice, play) {
   const levels = { perc: 0, str: 0, wood: 0, brass: 0 };
   levels[choice.family] = 1;
-  dog.build(levels, choice.coat);
+  dog.build(levels, choice.coat, {});
   dog.popIn(`${choice.family}1`);
   dog.pos.set(SPOTS.center[0], 0, SPOTS.center[1]);
   dog.yaw = world.cam.az;
@@ -866,9 +1091,14 @@ function frame(now) {
     updateTips(dt);
     ui.tickNotes(dt);
     app.uiT -= dt;
+    while (game.news.length) {
+      const n = game.news.shift();
+      audio.ui('shimmer');
+      ui.toast(n.type === 'task' ? `To-do done: ${n.label}. +${n.gems} gems` : `All of today's to-dos done! +${n.gems} bonus gems`);
+    }
     if (app.uiT <= 0) {
       app.uiT = 0.25;
-      world.gift.visible = game.dailyReady() && app.mode !== 'sleep' && app.mode !== 'wash';
+      world.gift.visible = game.dailyReady() && game.s.place === 'home' && app.mode !== 'sleep' && app.mode !== 'wash';
       ui.refresh();
       if (game.s.quest >= 4) updateGoal();
     }
@@ -894,6 +1124,7 @@ function frame(now) {
   const concert = app.mode === 'concert' && audio.mode === 'concert';
   for (const tag of audio.drain()) {
     dog.pulse(tag, concert ? 1 : 0.55);
+    if (concert && npc.root.visible && npc.has(tag)) npc.pulse(tag, 1);
     app.lastPulse[tag] = app.t;
     if (concert && Math.random() < 0.3) world.emit('note', partAnchor(tag), { color: colorOf(tag), size: 0.24, vel: [rand(-0.5, 0.5), rand(1, 1.8), rand(-0.3, 0.3)], life: 1.3, spin: rand(-1, 1) });
   }
@@ -904,6 +1135,8 @@ function frame(now) {
   else if (app.lookT > 0 && app.pointerLook) look = app.pointerLook;
   const title = app.screen === 'title';
   dog.update(dt, { beat: dog.asleep ? 0 : beat, bps, mood: app.screen === 'hud' ? game.mood : 0.9, lookAt: look, dancing: concert || (title && !game.s.adopted) });
+
+  if (npc.root.visible) npc.update(dt, { beat, bps, mood: 0.9, lookAt: ui.talking ? dog.anchor('head', tmp) : look, dancing: concert });
 
   const cam = world.cam;
   if (cam.zoomTarget) cam.zoom += (cam.zoomTarget - cam.zoom) * (1 - Math.exp(-dt * 2));
@@ -948,4 +1181,4 @@ if (window.__MUSICDOGS_SINGLE_FILE) {
 }
 
 // Handy for tests and the curious.
-window.__musicdogs = { app, game, dog, world, audio, ui, action, buy, collectTips, openGift, spawnGolden, catchGolden, buyStar, FLOOR_R };
+window.__musicdogs = { app, game, dog, npc, world, audio, ui, travel, talk, confirmPack, buyBoost, buyCosmetic, action, buy, collectTips, openGift, spawnGolden, catchGolden, buyStar, FLOOR_R };

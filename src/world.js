@@ -97,11 +97,12 @@ export class World {
   _paintSky(night) {
     const c = this.skyCanvas.getContext('2d');
     const mix = (a, b) => `#${new THREE.Color(a).lerp(new THREE.Color(b), night).getHexString()}`;
+    const sky = this.sky || ['#58B4FF', '#A8DCFF', '#FFE8C9', '#FFD1B8'];
     const g = c.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, mix('#58B4FF', '#070A26'));
-    g.addColorStop(0.5, mix('#A8DCFF', '#1B2259'));
-    g.addColorStop(0.8, mix('#FFE8C9', '#3B2F7A'));
-    g.addColorStop(1, mix('#FFD1B8', '#553C8B'));
+    g.addColorStop(0, mix(sky[0], '#070A26'));
+    g.addColorStop(0.5, mix(sky[1], '#1B2259'));
+    g.addColorStop(0.8, mix(sky[2], '#3B2F7A'));
+    g.addColorStop(1, mix(sky[3], '#553C8B'));
     c.fillStyle = g;
     c.fillRect(0, 0, 4, 256);
     this.skyTex.needsUpdate = true;
@@ -188,13 +189,28 @@ export class World {
         }
       }
     });
-    this.floor = part(s, G.cyl(FLOOR_R, FLOOR_R, 0.22, 72), [std('#B9784A', 0.6), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.55 }), std('#8A5633', 0.7)], { p: [0, -0.11, 0], cast: false, receive: true });
+    this.woodMat = new THREE.MeshStandardMaterial({ map: wood, roughness: 0.55 });
+    const speckle = canvasTex(256, 256, (c) => {
+      c.fillStyle = '#ffffff';
+      c.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 900; i++) {
+        c.fillStyle = `rgba(${i % 2 ? '255,255,255' : '0,0,0'},${0.015 + ((i * 37) % 10) / 400})`;
+        c.beginPath();
+        c.arc((i * 97) % 256, (i * 57) % 256, 1 + (i % 5), 0, Math.PI * 2);
+        c.fill();
+      }
+    });
+    speckle.wrapS = speckle.wrapT = THREE.RepeatWrapping;
+    speckle.repeat.set(3, 3);
+    this.groundMat = new THREE.MeshStandardMaterial({ map: speckle, roughness: 0.9 });
+    this.floor = part(s, G.cyl(FLOOR_R, FLOOR_R, 0.22, 72), [std('#B9784A', 0.6), this.woodMat, std('#8A5633', 0.7)], { p: [0, -0.11, 0], cast: false, receive: true });
     part(s, G.torus(FLOOR_R, 0.085, Math.PI * 2, 96, 10), std('#7A4526', 0.45), { p: [0, -0.02, 0], r: [Math.PI / 2, 0, 0], cast: false, receive: true });
     // the island under the stage
     part(s, G.cyl(FLOOR_R * 0.97, FLOOR_R * 0.55, 1.1, 48), std('#F3E3C8', 0.9), { p: [0, -0.77, 0], cast: false });
     part(s, G.cyl(FLOOR_R * 0.55, FLOOR_R * 0.12, 1.0, 40), std('#E7C9A2', 0.9), { p: [0, -1.82, 0], cast: false });
-    part(s, G.torus(FLOOR_R * 0.98, 0.07, Math.PI * 2, 96, 8), std('#3FA7FF', 0.5), { p: [0, -0.3, 0], r: [Math.PI / 2, 0, 0], cast: false });
+    this.band = part(s, G.torus(FLOOR_R * 0.98, 0.07, Math.PI * 2, 96, 8), std('#3FA7FF', 0.5), { p: [0, -0.3, 0], r: [Math.PI / 2, 0, 0], cast: false });
 
+    const h = (this.homeSet = group(this.scene)); // everything that only belongs on the porch
     // rug with a treble-clef-free, simple star
     const rug = canvasTex(512, 512, (c) => {
       c.translate(256, 256);
@@ -215,15 +231,15 @@ export class World {
       c.closePath();
       c.fill();
     });
-    part(s, G.disc(1.75, 64), new THREE.MeshStandardMaterial({ map: rug, roughness: 0.95, transparent: true }), { p: [0, 0.006, 0.2], r: [-Math.PI / 2, 0, 0], cast: false, receive: true });
+    part(h, G.disc(1.75, 64), new THREE.MeshStandardMaterial({ map: rug, roughness: 0.95, transparent: true }), { p: [0, 0.006, 0.2], r: [-Math.PI / 2, 0, 0], cast: false, receive: true });
 
     // bunting between two poles at the back
     const colors = ['#FF5D8F', '#FFD23F', '#3FD8FF', '#7CE38B', '#B48CFF', '#FF8A3D'];
     const poleMat = std('#F7F1E3', 0.5);
     const ends = [[-2.75, -1.55], [2.75, -1.55]];
     for (const [x, z] of ends) {
-      part(s, G.cyl(0.05, 0.065, 2.6, 12), poleMat, { p: [x, 1.3, z] });
-      part(s, G.sphere(0.1, 14, 10), std('#FFD23F', 0.3, 0.6), { p: [x, 2.66, z] });
+      part(h, G.cyl(0.05, 0.065, 2.6, 12), poleMat, { p: [x, 1.3, z] });
+      part(h, G.sphere(0.1, 14, 10), std('#FFD23F', 0.3, 0.6), { p: [x, 2.66, z] });
     }
     const sag = (u) => 2.5 - Math.sin(u * Math.PI) * 0.55;
     const line = [];
@@ -231,7 +247,7 @@ export class World {
       const u = i / 16;
       line.push([lerp(ends[0][0], ends[1][0], u), sag(u), -1.55 - Math.sin(u * Math.PI) * 1.2]);
     }
-    this.bunting = group(s);
+    this.bunting = group(h);
     part(this.bunting, tubeGeo(line, 0.012, { tubular: 48, radial: 6 }).geo, std('#6B4A2E', 0.8), { cast: false });
     const tri = new THREE.BufferGeometry();
     tri.setAttribute('position', new THREE.Float32BufferAttribute([-0.13, 0, 0, 0.13, 0, 0, 0, -0.3, 0], 3));
@@ -245,7 +261,7 @@ export class World {
 
     // potted plants
     for (const [x, z, sc] of [[-2.55, -0.6, 1], [0.55, -2.7, 0.85]]) {
-      const g = group(s, [x, 0, z]);
+      const g = group(h, [x, 0, z]);
       g.scale.setScalar(sc);
       part(g, G.cyl(0.24, 0.18, 0.34, 18), std('#E8785A', 0.7), { p: [0, 0.17, 0] });
       part(g, G.torus(0.245, 0.03, Math.PI * 2, 20, 8), std('#D4603F', 0.7), { p: [0, 0.34, 0], r: [Math.PI / 2, 0, 0] });
@@ -257,7 +273,7 @@ export class World {
     }
 
     // a music stand, because this is a rehearsal room
-    const st = group(s, [-1.35, 0, -1.95], [0, 0.45, 0]);
+    const st = group(h, [-1.35, 0, -1.95], [0, 0.45, 0]);
     const metal = std('#3A3D52', 0.35, 0.8);
     part(st, G.cyl(0.02, 0.02, 1.15, 8), metal, { p: [0, 0.58, 0] });
     for (let i = 0; i < 3; i++) part(st, G.cyl(0.014, 0.014, 0.42, 6), metal, { p: [Math.sin((i * Math.PI * 2) / 3) * 0.15, 0.07, Math.cos((i * Math.PI * 2) / 3) * 0.15], r: [Math.cos((i * Math.PI * 2) / 3) * 1.2, 0, -Math.sin((i * Math.PI * 2) / 3) * 1.2] });
@@ -289,8 +305,9 @@ export class World {
 
   _props() {
     const s = this.scene;
+    const h = this.homeSet;
     // food bowl
-    const bowl = (this.bowl = group(s, [SPOTS.bowl[0] - 0.38, 0, SPOTS.bowl[1] + 0.22]));
+    const bowl = (this.bowl = group(h, [SPOTS.bowl[0] - 0.38, 0, SPOTS.bowl[1] + 0.22]));
     const pts = [[0.16, 0], [0.26, 0.02], [0.29, 0.13], [0.26, 0.15], [0.22, 0.06], [0, 0.045]].map(([x, y]) => new THREE.Vector2(x, y));
     part(bowl, new THREE.LatheGeometry(pts, 32), std('#FF5D6C', 0.3, 0, { side: THREE.DoubleSide }), { receive: true });
     this.kibble = group(bowl, [0, 0.07, 0]);
@@ -302,12 +319,12 @@ export class World {
     this.kibble.visible = false;
 
     // bed
-    const bed = (this.bed = group(s, [SPOTS.bed[0], 0, SPOTS.bed[1]]));
+    const bed = (this.bed = group(h, [SPOTS.bed[0], 0, SPOTS.bed[1]]));
     part(bed, G.torus(0.62, 0.2, Math.PI * 2, 40, 14), std('#6C7BFF', 0.9), { p: [0, 0.17, 0], r: [Math.PI / 2, 0, 0], receive: true });
     part(bed, G.cyl(0.62, 0.62, 0.14, 32), std('#FFF3DC', 0.95), { p: [0, 0.1, 0], receive: true });
 
     // ball
-    this.ball = part(s, G.sphere(0.15, 20, 14), std('#FF5D8F', 0.4), { p: [2.3, 0.15, 0.7] });
+    this.ball = part(h, G.sphere(0.15, 20, 14), std('#FF5D8F', 0.4), { p: [2.3, 0.15, 0.7] });
     part(this.ball, G.torus(0.151, 0.022, Math.PI * 2, 28, 8), std('#FFFFFF', 0.4), { cast: false });
     part(this.ball, G.torus(0.151, 0.022, Math.PI * 2, 28, 8), std('#FFD23F', 0.4), { r: [Math.PI / 2, 0, 0], cast: false });
     this.ballV = new THREE.Vector3();
@@ -315,7 +332,7 @@ export class World {
     this.ballFree = false;
 
     // bath tub (hidden until bath time)
-    const tub = (this.tub = group(s, [SPOTS.bath[0], 0, SPOTS.bath[1]]));
+    const tub = (this.tub = group(h, [SPOTS.bath[0], 0, SPOTS.bath[1]]));
     const tp = [[0.62, 0], [0.82, 0.04], [0.9, 0.42], [0.84, 0.44], [0.76, 0.1], [0, 0.08]].map(([x, y]) => new THREE.Vector2(x, y));
     part(tub, new THREE.LatheGeometry(tp, 40), std('#FFFFFF', 0.25, 0, { side: THREE.DoubleSide }), { receive: true });
     part(tub, G.torus(0.87, 0.045, Math.PI * 2, 48, 10), std('#3FD8FF', 0.3), { p: [0, 0.43, 0], r: [Math.PI / 2, 0, 0] });
@@ -358,6 +375,252 @@ export class World {
     gift.visible = false;
 
     this.tappables = [jar, gift];
+  }
+
+  // ---------------------------------------------------------------- places
+
+  /** Swap the scenery for another isle. Sets are built the first time they are visited. */
+  setPlace(place) {
+    this.placeId = place.id;
+    this.homeSet.visible = place.id === 'home';
+    for (const [id, g] of Object.entries(this.placeSets || (this.placeSets = {}))) g.visible = id === place.id;
+    if (place.id !== 'home' && !this.placeSets[place.id]) {
+      const g = (this.placeSets[place.id] = group(this.scene));
+      this.placeAnims = this.placeAnims || {};
+      this.placeAnims[place.id] = this[`_isle_${place.id}`](g) || null;
+    }
+    this.placeAnim = (this.placeAnims || {})[place.id] || null;
+    this.floor.material[1] = place.ground ? this.groundMat : this.woodMat;
+    if (place.ground) this.groundMat.color.set(place.ground);
+    this.woodMat.color.set(place.id === 'brass' ? '#E6C9A6' : '#ffffff');
+    this.band.material.color.set(place.accent);
+    this.sky = place.sky;
+    this._paintSky(this.night);
+    // the Grand Shell sits in permanent twilight
+    this.duskTarget = place.id === 'shell' ? 0.45 : place.id === 'drum' ? 0.18 : 0;
+  }
+
+  _stageDisc(g, color, rim, r = 1.9) {
+    part(g, G.disc(r, 64), std(color, 0.85), { p: [0, 0.008, 0.2], r: [-Math.PI / 2, 0, 0], cast: false, receive: true });
+    part(g, G.torus(r, 0.05, Math.PI * 2, 72, 8), std(rim, 0.4, 0.2), { p: [0, 0.02, 0.2], r: [Math.PI / 2, 0, 0], cast: false, receive: true });
+  }
+
+  /** Drumlin Hollow: standing stones and great drums around a drumhead stage. */
+  _isle_drum(g) {
+    this._stageDisc(g, '#F6EBD8', '#C63D2F');
+    const stone = std('#8D7C76', 0.95);
+    const stone2 = std('#A39088', 0.95);
+    for (let i = 0; i < 11; i++) {
+      const a = Math.PI * 1.08 + (i / 10) * Math.PI * 0.84;
+      const h = 0.9 + ((i * 53) % 13) / 9;
+      const r = 0.2 + ((i * 31) % 7) / 40;
+      part(g, G.cyl(r * 0.7, r, 1, 7), i % 2 ? stone : stone2, { p: [Math.cos(a) * 2.95, h / 2, Math.sin(a) * 2.95], r: [((i % 3) - 1) * 0.06, i, ((i % 4) - 1.5) * 0.05], s: [1, h, 1] });
+    }
+    const drums = [];
+    for (const [x, z, r, h, tilt] of [[-1.95, -1.55, 0.42, 0.62, 0.35], [0.05, -2.35, 0.6, 0.85, 0.3], [1.95, -1.6, 0.36, 0.55, 0.4]]) {
+      const d = group(g, [x, h * 0.62, z], [tilt, Math.atan2(-x, 2.6 - z) * 0.6, 0]);
+      part(d, G.cyl(r, r * 0.9, h, 28), std('#B8442E', 0.55), {});
+      const head = part(d, G.cyl(r * 0.97, r * 0.97, 0.03, 28), std('#F4EAD6', 0.85), { p: [0, h / 2, 0] });
+      for (const y of [h / 2 - 0.03, -h / 2 + 0.03]) part(d, G.torus(r * 0.99, 0.03, Math.PI * 2, 28, 8), std('#3A2A26', 0.6), { p: [0, y, 0], r: [Math.PI / 2, 0, 0] });
+      head.userData.y = h / 2;
+      drums.push(head);
+    }
+    const flame = new THREE.MeshStandardMaterial({ color: '#FFB347', emissive: '#FF8A1F', emissiveIntensity: 2.2 });
+    for (const x of [-2.75, 2.75]) {
+      part(g, G.cyl(0.04, 0.05, 1.5, 8), std('#4A342C', 0.8), { p: [x, 0.75, 0.6] });
+      part(g, G.sphere(0.13, 12, 10), flame, { p: [x, 1.6, 0.6], cast: false });
+    }
+    return (t) => drums.forEach((d, i) => (d.position.y = d.userData.y + Math.max(0, Math.sin(t * 5.4 + i * 2.1)) * 0.012));
+  }
+
+  /** Stringmeadow: harp-willows, wildflowers and a wooden bandstand. */
+  _isle_string(g) {
+    this._stageDisc(g, '#EBD1A5', '#C98F4E');
+    const bark = std('#7B5435', 0.8);
+    const leaf = std('#63B85A', 0.8);
+    const leaf2 = std('#8BD46E', 0.8);
+    const strings = [];
+    for (const [x, z, sc, dir] of [[-2.35, -1.3, 1, 1], [0.2, -2.6, 1.25, -1], [2.4, -1.2, 0.9, -1]]) {
+      const t = group(g, [x, 0, z]);
+      t.scale.setScalar(sc);
+      part(t, G.cyl(0.09, 0.14, 1.5, 10), bark, { p: [0, 0.75, 0] });
+      const pts = [[0, 1.45, 0], [dir * 0.25, 1.95, 0.1], [dir * 0.75, 2.05, 0.25], [dir * 1.15, 1.75, 0.4]];
+      const { geo, curve } = tubeGeo(pts, (u) => 0.08 - u * 0.04, { tubular: 24, radial: 8 });
+      part(t, geo, bark);
+      for (const [lx, ly, lz, r] of [[0, 1.75, 0, 0.42], [dir * 0.5, 2.15, 0.15, 0.36], [dir * 1.0, 1.95, 0.35, 0.3], [-dir * 0.3, 1.95, -0.1, 0.3]]) part(t, G.sphere(1, 12, 9), lz > 0.2 ? leaf2 : leaf, { p: [lx, ly, lz], s: r });
+      const P = new THREE.Vector3();
+      for (let i = 0; i < 7; i++) {
+        curve.getPointAt(0.25 + (i / 6) * 0.72, P);
+        const len = 0.5 + ((i * 3) % 4) * 0.16;
+        const sMesh = part(t, G.cyl(0.008, 0.008, 1, 5), std(i % 3 ? '#F4F4F8' : '#FFD36A', 0.3, 0.8), { p: [P.x, P.y - len / 2 - 0.12, P.z], s: [1, len, 1], cast: false });
+        sMesh.userData.x = P.x;
+        strings.push(sMesh);
+      }
+    }
+    // bandstand arch with a string of lights
+    const post = std('#F7F1E3', 0.5);
+    for (const x of [-1.35, 1.35]) part(g, G.cyl(0.05, 0.06, 1.7, 10), post, { p: [x, 0.85, -1.55] });
+    part(g, G.torus(1.35, 0.045, Math.PI, 40, 8), post, { p: [0, 1.7, -1.55] });
+    const bulb = new THREE.MeshStandardMaterial({ color: '#FFF1B8', emissive: '#FFD66B', emissiveIntensity: 1.6 });
+    for (let i = 1; i < 10; i++) {
+      const a = (i / 10) * Math.PI;
+      part(g, G.sphere(0.05, 8, 6), bulb, { p: [Math.cos(a) * 1.35, 1.62 + Math.sin(a) * 1.35, -1.55], cast: false });
+    }
+    const cols = ['#FF7DB8', '#FFFFFF', '#FFD23F', '#B48CFF'];
+    for (let i = 0; i < 46; i++) {
+      const a = (i * 2.399) % (Math.PI * 2), r = 2.05 + ((i * 17) % 11) / 10;
+      part(g, G.sphere(0.055, 8, 6), std(cols[i % 4], 0.7), { p: [Math.cos(a) * r, 0.06, Math.sin(a) * r + 0.05], cast: false });
+      if (i % 2) part(g, G.cyl(0.01, 0.01, 0.1, 4), leaf, { p: [Math.cos(a) * r, 0.03, Math.sin(a) * r + 0.05], cast: false });
+    }
+    return (t) => strings.forEach((sm, i) => (sm.position.x = sm.userData.x + Math.sin(t * 1.7 + i * 0.9) * 0.02));
+  }
+
+  /** Reedwater: a lily-pad stage ringed by water, reeds and lotus. */
+  _isle_reed(g) {
+    part(g, new THREE.CircleGeometry(1.95, 64, 0.2, Math.PI * 2 - 0.4), std('#3FA66B', 0.8), { p: [0, 0.03, 0.2], r: [-Math.PI / 2, 0, 0], cast: false, receive: true });
+    part(g, new THREE.CircleGeometry(1.6, 48, 0.2, Math.PI * 2 - 0.4), std('#58BE7E', 0.8), { p: [0, 0.035, 0.2], r: [-Math.PI / 2, 0, 0], cast: false, receive: true });
+    const water = new THREE.MeshStandardMaterial({ color: '#6FD3E8', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.78 });
+    part(g, new THREE.RingGeometry(2.0, FLOOR_R - 0.12, 64), water, { p: [0, 0.012, 0], r: [-Math.PI / 2, 0, 0], cast: false, receive: true });
+    const reed = std('#7FBE6B', 0.8);
+    const tip = std('#6B4426', 0.9);
+    const stalks = [];
+    for (let k = 0; k < 13; k++) {
+      const a = Math.PI * 0.92 + (k / 12) * Math.PI * 1.16;
+      const cx = Math.cos(a) * 2.75, cz = Math.sin(a) * 2.75;
+      const cl = group(g, [cx, 0, cz]);
+      for (let i = 0; i < 5; i++) {
+        const h = 0.9 + ((k * 7 + i * 5) % 9) / 7;
+        const st = group(cl, [((i * 37) % 9) / 22 - 0.2, 0, ((i * 53) % 9) / 22 - 0.2]);
+        part(st, G.cyl(0.022, 0.03, 1, 6), reed, { p: [0, h / 2, 0], s: [1, h, 1] });
+        if (i % 2 === 0) part(st, G.capsule(0.045, 0.16, 8), tip, { p: [0, h + 0.05, 0] });
+        st.userData.ph = k + i;
+        stalks.push(st);
+      }
+    }
+    const pad = std('#4DB277', 0.8);
+    const petal = std('#FF9EC4', 0.6);
+    for (const [x, z] of [[-2.55, 1.0], [2.5, 0.9], [-1.7, 2.3], [1.2, 2.55], [2.6, -0.4]]) {
+      part(g, G.disc(0.28, 20), pad, { p: [x, 0.02, z], r: [-Math.PI / 2, 0, 0], cast: false });
+      for (let i = 0; i < 6; i++) part(g, G.sphere(1, 8, 6), petal, { p: [x + Math.cos(i * 1.05) * 0.07, 0.08, z + Math.sin(i * 1.05) * 0.07], s: [0.06, 0.09, 0.06], r: [Math.sin(i * 1.05) * 0.5, 0, -Math.cos(i * 1.05) * 0.5], cast: false });
+      part(g, G.sphere(0.035, 8, 6), std('#FFD23F', 0.6), { p: [x, 0.1, z], cast: false });
+    }
+    return (t) => stalks.forEach((st) => (st.rotation.z = Math.sin(t * 1.3 + st.userData.ph) * 0.05));
+  }
+
+  /** Port Brass: a pier with a horn-topped lighthouse, crates and bollards. */
+  _isle_brass(g) {
+    this._stageDisc(g, '#2B3A67', '#FFD23F');
+    part(g, G.disc(1.2, 5), std('#FFD23F', 0.5, 0.3), { p: [0, 0.012, 0.2], r: [-Math.PI / 2, 0, Math.PI / 2], cast: false });
+    part(g, G.disc(0.95, 48), std('#2B3A67', 0.85), { p: [0, 0.014, 0.2], r: [-Math.PI / 2, 0, 0], cast: false });
+    const brass = std('#F2B544', 0.2, 1, { side: THREE.DoubleSide });
+    // lighthouse
+    const lh = group(g, [-1.85, 0, -1.95]);
+    const stripes = ['#FFFFFF', '#E5484D', '#FFFFFF', '#E5484D'];
+    stripes.forEach((c, i) => part(lh, G.cyl(0.5 - (i + 1) * 0.045, 0.5 - i * 0.045, 0.62, 24), std(c, 0.6), { p: [0, 0.31 + i * 0.62, 0] }));
+    part(lh, G.cyl(0.44, 0.44, 0.06, 24), std('#2B3A67', 0.5), { p: [0, 2.52, 0] });
+    part(lh, G.cyl(0.24, 0.26, 0.4, 16), std('#FFF4C2', 0.3, 0, { emissive: '#FFD66B', emissiveIntensity: 1.2 }), { p: [0, 2.75, 0], cast: false });
+    part(lh, G.cyl(0.001, 0.34, 0.3, 16), std('#E5484D', 0.6), { p: [0, 3.1, 0] });
+    const horn = new THREE.Mesh(bellGeo(0.07, 0.42, 0.55, 2.2, 32), brass);
+    horn.position.set(0.25, 2.78, 0.3);
+    horn.rotation.set(Math.PI / 2 - 0.25, 0, -0.7);
+    horn.castShadow = true;
+    lh.add(horn);
+    // cargo
+    const crate = std('#C9955A', 0.8);
+    const dark = std('#5E3F25', 0.8);
+    for (const [x, z, sz, ry] of [[1.9, -1.9, 0.55, 0.3], [2.5, -1.35, 0.42, -0.2], [2.0, -1.85, 0.38, 0.7]]) {
+      const y = x === 2.0 ? 0.55 + 0.19 : sz / 2;
+      part(g, G.box(1, 1, 1), crate, { p: [x, y, z], r: [0, ry, 0], s: sz });
+      part(g, G.box(1.02, 0.12, 1.02), dark, { p: [x, y, z], r: [0, ry, 0], s: sz });
+    }
+    for (const [x, z] of [[0.75, -2.55], [1.25, -2.4]]) {
+      part(g, G.cyl(0.24, 0.21, 0.6, 16), std('#8A5A33', 0.7), { p: [x, 0.3, z] });
+      for (const y of [0.14, 0.46]) part(g, G.torus(0.235, 0.02, Math.PI * 2, 18, 6), std('#3A3D52', 0.4, 0.8), { p: [x, y, z], r: [Math.PI / 2, 0, 0] });
+    }
+    // bollards and rope along the edge
+    const bol = [];
+    for (let i = 0; i < 5; i++) {
+      const a = -0.25 + i * 0.36;
+      const x = Math.cos(a) * 3.0, z = Math.sin(a) * 3.0;
+      part(g, G.cyl(0.09, 0.11, 0.42, 12), std('#2B2D42', 0.5, 0.4), { p: [x, 0.21, z] });
+      part(g, G.sphere(0.11, 12, 8), std('#2B2D42', 0.5, 0.4), { p: [x, 0.44, z], s: [1, 0.6, 1] });
+      bol.push([x, 0.36, z]);
+      if (i) bol.splice(bol.length - 1, 0, [(x + bol[bol.length - 2][0]) / 2, 0.22, (z + bol[bol.length - 2][2]) / 2]);
+    }
+    part(g, tubeGeo(bol, 0.022, { tubular: 60, radial: 6 }).geo, std('#E9D8B4', 0.9), { cast: false });
+    for (const [x, z] of [[-2.85, 0.9], [2.2, 2.15]]) {
+      part(g, G.cyl(0.035, 0.05, 1.7, 8), std('#2B2D42', 0.4, 0.6), { p: [x, 0.85, z] });
+      part(g, G.sphere(0.13, 12, 10), new THREE.MeshStandardMaterial({ color: '#FFF1B8', emissive: '#FFC95C', emissiveIntensity: 1.8 }), { p: [x, 1.78, z], cast: false });
+    }
+    return (t) => (horn.rotation.z = -0.7 + Math.sin(t * 0.5) * 0.06);
+  }
+
+  /** The Grand Shell: a marble band shell with gold ribs and a red carpet. */
+  _isle_shell(g) {
+    this._stageDisc(g, '#B3243B', '#FFD36A');
+    const cream = new THREE.MeshStandardMaterial({ color: '#FBF3E4', roughness: 0.6, side: THREE.BackSide });
+    const gold = std('#FFD36A', 0.2, 1);
+    const shell = group(g, [0, 0, -0.35]);
+    shell.scale.set(1, 0.9, 1);
+    part(shell, new THREE.SphereGeometry(3.0, 48, 20, Math.PI, Math.PI, 0, Math.PI / 2), cream, { cast: false, receive: true });
+    for (const d of [0, 1.1, 2.0, 2.6]) {
+      const r = Math.sqrt(9 - d * d);
+      part(shell, G.torus(r, d ? 0.045 : 0.085, Math.PI, 64, 8), gold, { p: [0, 0, -d], cast: false });
+    }
+    const lamp = new THREE.MeshStandardMaterial({ color: '#FFF1B8', emissive: '#FFD66B', emissiveIntensity: 2 });
+    const lamps = [];
+    for (let i = 0; i <= 12; i++) {
+      const a = Math.PI + (i / 12) * Math.PI;
+      lamps.push(part(g, G.sphere(0.07, 10, 8), lamp.clone(), { p: [Math.cos(a) * 2.75, 0.09, Math.sin(a) * 2.75 - 0.35], cast: false }));
+    }
+    for (const sx of [-1, 1]) {
+      const pts = [];
+      for (let i = 0; i < 3; i++) {
+        const x = sx * (2.2 + i * 0.3), z = 1.3 + i * 0.75;
+        part(g, G.cyl(0.035, 0.05, 0.75, 10), gold, { p: [x, 0.375, z] });
+        part(g, G.sphere(0.07, 10, 8), gold, { p: [x, 0.78, z] });
+        pts.push([x, 0.68, z]);
+        if (i < 2) pts.push([x + sx * 0.15, 0.5, z + 0.375]);
+      }
+      part(g, tubeGeo(pts, 0.03, { tubular: 30, radial: 6 }).geo, std('#B3243B', 0.8), { cast: false });
+    }
+    return (t) => lamps.forEach((l, i) => (l.material.emissiveIntensity = 1.4 + Math.sin(t * 2.4 + i * 0.7) * 0.9));
+  }
+
+  /** Keepsakes from friends, displayed along the back of the porch. */
+  setSouvenirs(list) {
+    if (!this.keepsakes) {
+      const h = this.homeSet;
+      const k = (this.keepsakes = {});
+      const gold = std('#FFD36A', 0.2, 1);
+      let g = (k.bongo = group(h, [-0.55, 0, -2.55]));
+      for (const [x, r] of [[-0.16, 0.16], [0.17, 0.13]]) {
+        part(g, G.cyl(r, r * 0.8, 0.3, 18), std('#B8442E', 0.5), { p: [x, 0.15, 0] });
+        part(g, G.cyl(r * 0.97, r * 0.97, 0.02, 18), std('#F4EAD6', 0.85), { p: [x, 0.3, 0] });
+      }
+      g = k.windchime = group(h, [1.75, 0, -2.1]);
+      part(g, G.cyl(0.03, 0.04, 1.5, 8), std('#F7F1E3', 0.5), { p: [0, 0.75, 0] });
+      part(g, G.cyl(0.02, 0.02, 0.4, 6), std('#F7F1E3', 0.5), { p: [0.18, 1.46, 0], r: [0, 0, Math.PI / 2] });
+      part(g, G.disc(0.11, 16), std('#C98F4E', 0.6, 0, { side: THREE.DoubleSide }), { p: [0.3, 1.38, 0], r: [-Math.PI / 2, 0, 0] });
+      k.chimes = [];
+      for (let i = 0; i < 5; i++) k.chimes.push(part(g, G.cyl(0.014, 0.014, 0.22 + i * 0.05, 6), std('#E3E8EF', 0.2, 1), { p: [0.3 + Math.cos(i * 1.26) * 0.08, 1.2 - i * 0.025, Math.sin(i * 1.26) * 0.08], cast: false }));
+      g = k.reeds = group(h, [-2.2, 0, -1.75]);
+      part(g, G.cyl(0.14, 0.11, 0.3, 14), std('#5DB5A2', 0.5), { p: [0, 0.15, 0] });
+      for (let i = 0; i < 5; i++) {
+        part(g, G.cyl(0.014, 0.018, 0.7 + i * 0.07, 5), std('#7FBE6B', 0.8), { p: [(i - 2) * 0.04, 0.55 + i * 0.035, (i % 2) * 0.05 - 0.02], r: [0, 0, (i - 2) * 0.08] });
+        part(g, G.capsule(0.028, 0.09, 6), std('#6B4426', 0.9), { p: [(i - 2) * 0.07, 0.95 + i * 0.07, (i % 2) * 0.05 - 0.02] });
+      }
+      g = k.lantern = group(h, [2.55, 0, 0.75]);
+      part(g, G.cyl(0.12, 0.14, 0.05, 12), std('#2B2D42', 0.4, 0.6), { p: [0, 0.025, 0] });
+      part(g, G.cyl(0.1, 0.1, 0.24, 12), new THREE.MeshStandardMaterial({ color: '#FFF1B8', emissive: '#FFC95C', emissiveIntensity: 1.6 }), { p: [0, 0.17, 0], cast: false });
+      part(g, G.cyl(0.03, 0.13, 0.09, 12), std('#2B2D42', 0.4, 0.6), { p: [0, 0.33, 0] });
+      part(g, G.torus(0.05, 0.012, Math.PI * 2, 12, 6), std('#2B2D42', 0.4, 0.6), { p: [0, 0.41, 0] });
+      g = k.baton = group(h, [0.0, 0, -2.3]);
+      part(g, G.cyl(0.2, 0.24, 0.12, 20), std('#F1EADF', 0.5), { p: [0, 0.06, 0] });
+      part(g, G.cyl(0.012, 0.022, 0.62, 8), gold, { p: [0.06, 0.42, 0], r: [0, 0, -0.5] });
+      part(g, G.sphere(0.045, 10, 8), gold, { p: [-0.09, 0.16, 0] });
+    }
+    for (const id of ['bongo', 'windchime', 'reeds', 'lantern', 'baton']) this.keepsakes[id].visible = list.includes(id);
   }
 
   /** Everything that floats: the golden note and the Virtuoso star halo. */
@@ -519,12 +782,15 @@ export class World {
   // -------------------------------------------------------------- picking
 
   /** Returns { tag, point } for the nearest dog part / floor under a pointer. */
-  pick(nx, ny, dogRoot) {
+  pick(nx, ny, dogRoot, npcRoot) {
     this.ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
     const hits = this.ray.intersectObject(dogRoot, true);
-    for (const h of hits) {
-      if (h.object.userData.tag && h.object.visible) return { tag: h.object.userData.tag, point: h.point, onDog: true };
+    const own = hits.find((h) => h.object.userData.tag && h.object.visible);
+    if (npcRoot && npcRoot.visible) {
+      const other = this.ray.intersectObject(npcRoot, true)[0];
+      if (other && (!own || other.distance < own.distance)) return { tag: 'npc', point: other.point, onDog: false };
     }
+    if (own) return { tag: own.object.userData.tag, point: own.point, onDog: true };
     const props = this.ray.intersectObjects(this.tappables.filter((t) => t.visible), true);
     if (props.length) return { tag: props[0].object.userData.tag, point: props[0].point, onDog: false };
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -562,9 +828,10 @@ export class World {
     this.t += dt;
     const t = this.t;
 
-    // day / night
-    if (Math.abs(this.night - this.nightTarget) > 0.002) {
-      this.night = lerp(this.night, this.nightTarget, 1 - Math.exp(-dt * 2.2));
+    // day / night (some isles sit in a permanent dusk)
+    const wantNight = Math.max(this.nightTarget, this.duskTarget || 0);
+    if (Math.abs(this.night - wantNight) > 0.002) {
+      this.night = lerp(this.night, wantNight, 1 - Math.exp(-dt * 2.2));
       const n = this.night;
       this._paintSky(n);
       this.sun.intensity = lerp(2.1, 0.22, n);
@@ -659,6 +926,7 @@ export class World {
     this.camera.lookAt(cam.target.x, cam.target.y + (portrait ? -0.15 : 0.05), cam.target.z);
     // the bunting would hang in front of the lens when looking from behind the stage
     this.bunting.visible = this.camera.position.z > -1.4;
+    if (this.placeAnim) this.placeAnim(t);
     const sh = this.shift;
     sh.x = lerp(sh.x, sh.tx, 1 - Math.exp(-dt * 5));
     sh.y = lerp(sh.y, sh.ty, 1 - Math.exp(-dt * 5));

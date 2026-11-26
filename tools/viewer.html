@@ -8,12 +8,25 @@
 <script type="module">
 import { World } from '../src/world.js';
 import { Dog } from '../src/dog/dog.js';
+import { placeById, NPCS } from '../src/lore.js';
 const q = new URLSearchParams(location.search);
 const [perc, str, wood, brass] = (q.get('levels') || '0,0,0,0').split(',').map(Number);
 const world = new World(document.getElementById('c'));
 const dog = new Dog();
-dog.build({ perc, str, wood, brass }, q.get('coat') || 'biscuit');
+const wear = Object.fromEntries((q.get('wear') || '').split(',').filter(Boolean).map((x) => x.split(':')));
+dog.build({ perc, str, wood, brass }, q.get('coat') || 'biscuit', wear);
 world.scene.add(dog.root);
+const place = placeById(q.get('place') || 'home');
+world.setPlace(place);
+if (q.get('keepsakes')) world.setSouvenirs(['bongo', 'windchime', 'reeds', 'lantern', 'baton']);
+let npc = null;
+if (place.npc) {
+  npc = new Dog();
+  npc.build(NPCS[place.npc].levels, NPCS[place.npc].coat);
+  npc.pos.set(-1.25, 0, -0.7);
+  npc.yaw = 0.75;
+  world.scene.add(npc.root);
+}
 dog.pose = q.get('pose') || 'stand';
 dog.yaw = Number(q.get('yaw') || 0);
 dog.pos.set(0, 0, 0.2);
@@ -30,6 +43,7 @@ const look = world.camera.position;
 (function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   dog.update(dt, { beat: 0, mood: 0.8, lookAt: look, dancing: !!q.get('dance') });
+  if (npc) npc.update(dt, { beat: 0, mood: 0.8, lookAt: look });
   world.update(dt, dog.pos);
   world.render();
   window.__ready = true;

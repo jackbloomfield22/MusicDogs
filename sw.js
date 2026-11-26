@@ -1,10 +1,10 @@
 // Offline support: cache the app shell on install, serve cache-first,
 // refresh in the background.
-const CACHE = 'musicdogs-3d-v1';
+const CACHE = 'musicdogs-3d-v3';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css', 'vendor/three.module.min.js',
   'assets/fonts/Fredoka.woff2', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png',
-  'src/main.js', 'src/world.js', 'src/game.js', 'src/ui.js',
+  'src/main.js', 'src/world.js', 'src/game.js', 'src/ui.js', 'src/lore.js',
   'src/dog/build.js', 'src/dog/parts.js', 'src/dog/dog.js',
   'src/audio/orchestra.js', 'src/audio/score.js',
 ];

@@ -29,6 +29,32 @@ Tail**, **Clarinet Legs** or a **Trumpet Snout**. From there:
 | Woodwinds | Clarinet Legs | Bassoon Legs | Pan-Flute Mane |
 | Brass | Trumpet Snout | Horn Collar | Sousaphone Coil |
 
+### The Chorus Isles
+
+The porch is one of six places adrift on the cloud sea. The old story goes
+that the Great Howl, the first song ever sung, broke into four Echoes, and
+each Echo soaked into the dogs of one isle. That is why every pup is born
+half instrument.
+
+| Place | Family | Lives there |
+|---|---|---|
+| Pup's Porch | home | you |
+| Drumlin Hollow | Percussion | Boomer, Keeper of the Beat |
+| Stringmeadow | Strings | Viola, Weaver of the Willow |
+| Reedwater | Woodwinds | Pip, Whistler of the Marsh |
+| Port Brass | Brass | Captain Tuba, Harbourmaster |
+| The Grand Shell | all four | Maestra Fermata, Conductor |
+
+- **Sail** between isles from the Map. Food, bath and bed are only at home,
+  so touring and looking after the pup take turns.
+- **Perform** at each isle's venue. Crowds there pay more, the resident
+  joins in as a duet, and applause adds up to **fame stars**. Fame is what
+  persuades the cloud-ferry to sail to the next isle.
+- **Meet** the residents. Each has three quests that pay notes, gems,
+  keepsakes for the porch and legends for the Songbook.
+- **Journal.** Three small to-dos each day, your friends' quests, and the
+  Songbook: 17 pages of places, friends and legends to find.
+
 ### Tips, gifts and surprises
 
 Notes also arrive on their own, so there is always something waiting:
@@ -46,8 +72,20 @@ Notes also arrive on their own, so there is always something waiting:
 - **Virtuoso stars.** After Full Orchestra, notes buy stars that make every
   note worth 10% more.
 
-Nothing here costs money, uses countdown timers or takes anything away from
-a player who stays away.
+### The store (pretend)
+
+A second currency, gems, buys boosts (Snack Hamper, Tip Magnet, Encore
+Ticket, Sack of Notes, Jumbo Jar) and outfits for the pup. Gems are earned
+in play, and the store also lists gem packs with price tags for testing how
+a store would feel.
+
+**No real money is involved anywhere.** There is no payment code and no card
+form. "Buying" a pack opens a confirmation that says so, grants the gems,
+and writes a line to the store test log in Settings (what was taken, the
+pretend total, and how many minutes into play it happened).
+
+The game uses no countdown timers and takes nothing away from a player who
+stays away.
 
 A pup goes from Solo Pup through Duo, Trio and Quartet all the way to Full
 Orchestra. Needs drift down slowly while you are away, but a pup is never
@@ -105,8 +143,11 @@ or audio files.
 - **The orchestra** (`src/audio`): one synthesised Web Audio voice per
   instrument part and a sequencer that plays "Pup's Theme". Each part has its
   own line in the score, and only the parts the dog has grown are played.
-- **The rules** (`src/game.js`): needs, rewards, prices and saving, kept free
-  of rendering code so they can be tested directly.
+- **The rules** (`src/game.js`): needs, rewards, prices, fame, quests, the
+  pretend store and saving, kept free of rendering code so they can be
+  tested directly.
+- **The world** (`src/lore.js`): places, residents, dialogue, quests, legends
+  and the store catalogue, all as plain data.
 
 Progress is saved in the browser's local storage.
 
@@ -117,9 +158,10 @@ npm test
 ```
 
 Covers the upgrade catalogue, buying rules, needs, saving, time away, the
-tip jar, gift streaks, surprise rewards, the score (every note in key and in
-range), and a simulated play session that must reach Full Orchestra in a
-sensible time.
+tip jar, gift streaks, surprise rewards, travel, fame, every friend's quest
+chain, daily to-dos, the pretend store and its test log, the score (every
+note in key and in range), and a simulated play session that must reach Full
+Orchestra in a sensible time.
 
 ## Classic rhythm game
 

@@ -52,9 +52,10 @@ export class Dog {
 
   // ----------------------------------------------------------------- build
 
-  build(levels, coat) {
+  build(levels, coat, wearing = this.wearing || {}) {
     this.levels = { ...levels };
     this.coat = coat;
+    this.wearing = { ...wearing };
     // drop the old model
     while (this.root.children.length) {
       const child = this.root.children[0];
@@ -138,6 +139,12 @@ export class Dog {
       this.ears.push(pivot);
     }
     if (L.wood >= 3) head.add(reg('wood3', P.panFluteMane(M)));
+
+    // outfits
+    const W = this.wearing;
+    if (W.head) head.add(reg(`fit-${W.head}`, P.outfit(M, W.head)));
+    if (W.face) head.add(reg(`fit-${W.face}`, P.outfit(M, W.face)));
+    if (W.neck) neck.add(reg(`fit-${W.neck}`, P.outfit(M, W.neck)));
 
     // anything that should pulse when its instrument sounds
     this.pulseMeshes = [];

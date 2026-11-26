@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { Game, UPGRADES, COSTS, RANKS, NEEDS, FAMILY_ORDER, STREAK_LEN, dayIndex } from '../src/game.js';
 import { buildScore, BARS, STEPS_PER_BAR } from '../src/audio/score.js';
+import { PLACES, NPCS, QUESTS, LEGENDS, SOUVENIRS, GEM_PACKS, BOOSTS, COSMETICS, TASKS, FAME_STEPS } from '../src/lore.js';
 
 let checks = 0;
 const ok = (cond, msg) => {
@@ -140,14 +141,24 @@ for (const f of FAMILY_ORDER) {
         g.care('fun', 17);
       }
     } else {
+      // perform on the best isle that is open (needs can only be topped up at home)
+      const best = [...PLACES].reverse().find((p) => g.placeOpen(p.id));
+      if (g.s.place !== best.id) {
+        g.travel(best.id);
+        step(4);
+      }
       step(21);
       g.finishConcert(6);
+      if (g.s.needs.rest < 30 || g.s.needs.food < 45) {
+        g.travel('home');
+        step(4);
+      }
     }
   }
   const minutes = t / 60;
   ok(g.total === 12, 'a caring player completes the orchestra');
   ok(minutes > 8 && minutes < 50, `full orchestra takes a session, not seconds or days (simulated ${minutes.toFixed(1)} min)`);
-  console.log(`  simulated time to Full Orchestra: ${minutes.toFixed(1)} minutes, ${g.s.concerts} concerts`);
+  console.log(`  simulated time to Full Orchestra: ${minutes.toFixed(1)} minutes, ${g.s.concerts} concerts, ${g.fame} fame stars`);
 }
 
 // --- tip jar: steady income, in play and away ---
@@ -260,6 +271,139 @@ for (const f of FAMILY_ORDER) {
   ok(g.tipRate(1) > rate && g.concertReward() > concert && Math.abs(g.boost - 1.1) < 1e-9, 'each star lifts everything earned by 10%');
   g.s.notes = 0;
   ok(!g.buyStar(), 'stars need notes');
+}
+
+// --- the world: places, friends, quests ---
+{
+  ok(PLACES.length === 6 && PLACES[0].id === 'home', 'six places, starting at home');
+  ok(PLACES.every((p, i) => i === 0 || p.need >= PLACES[i - 1].need), 'isles open in order');
+  ok(PLACES.filter((p) => p.npc).every((p) => NPCS[p.npc] && NPCS[p.npc].place === p.id), 'every isle has its resident');
+  ok(Object.keys(NPCS).every((id) => QUESTS[id].length === 3 && NPCS[id].intro.length >= 3 && NPCS[id].idle.length >= 2), 'every friend has an introduction, small talk and three quests');
+  const legendIds = LEGENDS.map((l) => l.id);
+  const rewards = Object.values(QUESTS).flat().map((q) => q.reward);
+  ok(rewards.every((r) => (!r.legend || legendIds.includes(r.legend)) && (!r.souvenir || SOUVENIRS[r.souvenir]) && (!r.cosmetic || COSMETICS.some((c) => c.id === r.cosmetic))), 'quest rewards all exist');
+  ok(legendIds.filter((id) => id !== 'howl').every((id) => rewards.some((r) => r.legend === id)), 'every legend can be earned');
+  ok(Object.keys(SOUVENIRS).every((id) => rewards.some((r) => r.souvenir === id)), 'every keepsake can be earned');
+  // the last isle must be reachable from the fame available before it
+  const before = PLACES.filter((p) => p.id !== 'home' && p.id !== 'shell').length * FAME_STEPS.length;
+  ok(PLACES.every((p) => p.need <= before), 'no isle asks for more fame than exists');
+
+  const g = fresh('str', () => 0.99); // polite applause every time
+  ok(g.placeOpen('home') && g.placeOpen('drum') && !g.placeOpen('string') && !g.placeOpen('shell'), 'only the first isle is open at the start');
+  ok(!g.travel('string') && g.s.place === 'home', 'the ferry will not sail to a locked isle');
+  const t = g.travel('drum');
+  ok(t && t.first && g.s.place === 'drum' && g.s.visited.includes('drum'), 'sailing somewhere new is remembered');
+  ok(!g.travel('drum'), 'you cannot sail to where you already are');
+
+  // meeting Boomer: introduction + first quest
+  const hello = g.talk('boomer');
+  ok(hello.lines.length === 4 && !hello.reward && g.s.met.includes('boomer'), 'a first meeting is an introduction and a request');
+  let qs = g.questState('boomer');
+  ok(qs.have === 0 && qs.need === 2 && !qs.done, 'the quest starts from zero');
+  ok(g.talk('boomer').lines.some((l) => l.includes('0 of 2')), 'small talk reminds you how far along you are');
+
+  // concerts on tour pay more, build fame, and count for the quest
+  g.s.needs = { food: 100, fun: 100, clean: 100, rest: 100 };
+  const home = fresh('str', () => 0.99);
+  home.s.needs = { food: 100, fun: 100, clean: 100, rest: 100 };
+  const a = g.finishConcert(0);
+  const b = home.finishConcert(0);
+  ok(a.earned > b.earned && a.place === 'drum' && b.newStars === 0, 'crowds on the isles pay more than the porch, and the porch earns no fame');
+  ok(g.fameStars('drum') === 0, 'one polite concert is not a star yet');
+  g.s.needs.rest = 100;
+  const second = g.finishConcert(0);
+  ok(second.newStars === 1 && g.fameStars('drum') === 1 && g.fame === 1 && g.s.gems === 5, 'applause adds up to a fame star, and a star pays gems');
+  qs = g.questState('boomer');
+  ok(qs.done, 'two concerts finish the first quest');
+  const handIn = g.talk('boomer');
+  ok(handIn.reward && handIn.reward.notes > 0 && handIn.reward.legend === 'echoes' && g.s.legends.includes('echoes'), 'handing in a quest pays out and teaches a legend');
+  ok(g.questState('boomer').index === 1 && !g.questState('boomer').done, 'the next quest follows (a strings pup has no percussion yet)');
+  g.s.notes = 999;
+  g.buy('perc1');
+  ok(g.questState('boomer').done, 'growing the part completes it');
+  const keep = g.talk('boomer');
+  ok(keep.reward.souvenir === 'bongo' && g.s.souvenirs.includes('bongo'), 'a keepsake comes home with you');
+  // fame opens the next isle
+  for (let i = 0; i < 12; i++) {
+    g.s.needs = { food: 100, fun: 100, clean: 100, rest: 100 };
+    g.finishConcert(0);
+  }
+  ok(g.fameStars('drum') === 3 && g.placeOpen('string') && !g.placeOpen('reed'), 'three stars on one isle open the next');
+  ok(g.talk('boomer').reward.gems === 20 && g.questState('boomer') === null, 'the third quest is the last');
+  ok(!g.talk('boomer').reward, 'after that, friends just chat');
+  const sb = g.songbook;
+  ok(sb.total === 17 && sb.have === 2 + 1 + 2, 'the Songbook counts places, friends and legends');
+  const percPup = fresh('perc');
+  percPup.travel('drum');
+  percPup.talk('boomer');
+  percPup.s.q.boomer.i = 1;
+  ok(percPup.questState('boomer').done, 'a pup that already has the part passes that quest at once');
+}
+
+// --- daily to-dos ---
+{
+  const g = fresh();
+  const list = g.ensureTasks(Date.UTC(2026, 0, 10, 12));
+  ok(list.length === 3 && new Set(list.map((t) => TASKS[t.k].type)).size === 3, 'three different to-dos a day');
+  ok(g.ensureTasks(Date.UTC(2026, 0, 10, 20)) === list, 'they stay put through the day');
+  const g2 = fresh();
+  const days = new Set();
+  for (let d = 0; d < 8; d++) days.add(g2.ensureTasks(Date.UTC(2026, 0, 10 + d, 12)).map((t) => t.k).join());
+  ok(days.size >= 4, 'the trio changes from day to day');
+  const g3 = fresh();
+  const tasks = g3.ensureTasks();
+  for (const t of tasks) g3.bump(TASKS[t.k].type, TASKS[t.k].n);
+  ok(tasks.every((t) => t.done) && g3.s.gems === 3 * 3 + 5, 'finishing to-dos pays gems, with a bonus for all three');
+  ok(g3.news.length === 4 && g3.news[3].type === 'tasks', 'and each one is announced');
+  g3.bump(TASKS[tasks[0].k].type, 5);
+  ok(g3.s.gems === 14, 'a finished to-do does not pay twice');
+}
+
+// --- gems and the pretend store ---
+{
+  const g = fresh();
+  ok(GEM_PACKS.every((p) => p.price > 0 && p.gems > 0) && BOOSTS.every((b) => b.cost > 0), 'the catalogue is priced');
+  ok(!g.buyBoost('hamper') && !g.buyCosmetic('bowtie'), 'no gems, no boosts or outfits');
+  const pack = g.buyPack('gems500', 5000);
+  ok(pack && g.s.gems === 500, 'a pretend purchase grants its gems');
+  ok(g.ledger.count === 1 && Math.abs(g.ledger.total - 4.99) < 1e-9 && g.ledger.items[0].sku === 'gems500', 'and is written to the test log');
+  ok(g.buyPack('welcome') && g.s.wardrobe.includes('partyhat') && g.s.notes === 300, 'the welcome bundle brings notes and a hat');
+  ok(g.buyPack('welcome') === null && g.ledger.count === 2, 'but only once');
+  ok(g.buyPack('nonsense') === null, 'unknown items are refused');
+  g.s.needs = { food: 5, fun: 5, clean: 5, rest: 5 };
+  ok(g.buyBoost('hamper') && NEEDS.every((n) => g.s.needs[n] === 100) && g.s.gems === 700 - 25, 'the Snack Hamper fills every need');
+  const rate = g.tipRate();
+  ok(g.buyBoost('magnet') && Math.abs(g.tipRate() - rate * 2) < 1e-9, 'the Tip Magnet doubles tips');
+  g.tick(601);
+  ok(g.s.magnet === 0, 'for ten minutes');
+  const cap = g.tipCap();
+  ok(g.buyBoost('jumbo') && g.tipCap() === cap * 2 && !g.buyBoost('jumbo'), 'the Jumbo Jar doubles the jar, once');
+  const polite = new Game(null, () => 0.99);
+  polite.adopt('T', 'biscuit', 'perc');
+  polite.s.gems = 100;
+  polite.s.needs = { food: 100, fun: 100, clean: 100, rest: 100 };
+  polite.buyBoost('ticket');
+  const r = polite.finishConcert(0);
+  ok(r.ticket && r.tier === 'ovation' && polite.s.tickets === 0, 'an Encore Ticket lifts a polite crowd to its feet, then is used up');
+  ok(g.buyCosmetic('bowtie') && g.s.wearing.neck === 'bowtie' && !g.buyCosmetic('bowtie'), 'outfits are bought once and worn');
+  ok(g.wear('bowtie') && g.s.wearing.neck === null && g.wear('bowtie') && g.s.wearing.neck === 'bowtie', 'and can be taken off and put back on');
+  ok(!g.buyCosmetic('crown') && !g.wear('crown'), 'the crown cannot be bought, only earned');
+  ok(g.wear('partyhat') && g.buyCosmetic('tophat') && g.s.wearing.head === 'tophat', 'one hat at a time');
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const a = new Game(storage);
+  a.adopt('T', 'biscuit', 'perc');
+  a.buyPack('gems80');
+  a.reset();
+  ok(!a.s.adopted && a.s.gems === 0 && a.ledger.count === 1, 'starting over wipes the pup but keeps the test log');
+  a.clearLedger();
+  ok(a.ledger.count === 0, 'the test log can be cleared');
+  // the seventh daily gift carries gems
+  const d = fresh();
+  const t0 = Date.UTC(2026, 0, 10, 12);
+  let last;
+  for (let i = 0; i < 7; i++) last = d.claimDaily(t0 + i * DAY);
+  ok(last.day === 7 && last.gems === 20 && d.s.gems === 20, 'a full week of gifts ends with gems');
 }
 
 // --- the score ---

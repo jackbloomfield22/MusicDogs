@@ -1,6 +1,8 @@
 // Rules of the pet game: needs, rewards, upgrades and saving.
 // Pure data + logic (no DOM, no 3D) so it can be tested on its own.
 
+import { PLACES, placeById, FAME_STEPS, NPCS, QUESTS, GEM_PACKS, BOOSTS, COSMETICS, cosmeticById, TASKS, TASK_GEMS, TASK_BONUS } from './lore.js';
+
 export const FAMILIES = {
   perc: { name: 'Percussion', color: '#FF6B7A' },
   str: { name: 'Strings', color: '#FFB84D' },
@@ -26,7 +28,7 @@ export const UPGRADES = [
 export const upgradeById = (id) => UPGRADES.find((u) => u.id === id);
 
 // Price of the next upgrade depends on how many you already own (the starter is free).
-export const COSTS = [20, 35, 55, 80, 115, 160, 220, 300, 400, 520, 680];
+export const COSTS = [25, 50, 90, 140, 210, 300, 420, 580, 780, 1020, 1300];
 export const RANKS = [
   'Stray Note', 'Solo Pup', 'Duo', 'Trio', 'Quartet', 'Quintet', 'Sextet', 'Septet', 'Octet',
   'Chamber Pup', 'Little Symphony', 'Grand Symphony', 'Full Orchestra',
@@ -72,6 +74,26 @@ export function newState() {
     stars: 0, // Virtuoso stars (bought after Full Orchestra)
     daily: { day: 0, streak: 0 },
     lucky: 0,
+    // --- the world ---
+    place: 'home',
+    fame: {}, // place -> applause points earned at its venue
+    met: [], // friends you have talked to
+    q: {}, // friend -> { i: quest index, base: stat snapshot when it was given }
+    legends: ['howl'],
+    visited: ['home'],
+    souvenirs: [],
+    stat: { concertsAt: {}, concerts: 0, golden: 0, jarNotes: 0, jarCollects: 0, harmony: 0, travels: 0, care: 0, pets: 0 },
+    tasks: { day: 0, list: [] },
+    // --- gems + the pretend store ---
+    gems: 0,
+    wardrobe: [],
+    wearing: { head: null, neck: null, face: null },
+    magnet: 0, // seconds of doubled tips
+    tickets: 0, // Encore Tickets held
+    jumbo: false,
+    bought: [], // one-time store items already taken
+    ledger: [], // pretend purchases, for testing the store
+    playSeconds: 0,
     settings: { music: 0.8, sfx: 0.8, low: false },
   };
 }
@@ -83,6 +105,8 @@ export class Game {
     this.s = newState();
     this.away = 0; // seconds since last visit (set by load)
     this.awayTips = 0; // tips that piled up while away
+    this.news = []; // things that just happened, for the UI to announce
+    this._wasHarmony = false;
   }
 
   // ------------------------------------------------------------------ save
@@ -93,7 +117,7 @@ export class Game {
       if (raw) {
         const p = JSON.parse(raw);
         const base = newState();
-        this.s = { ...base, ...p, levels: { ...base.levels, ...p.levels }, needs: { ...base.needs, ...p.needs }, settings: { ...base.settings, ...p.settings }, daily: { ...base.daily, ...p.daily } };
+        this.s = { ...base, ...p, levels: { ...base.levels, ...p.levels }, needs: { ...base.needs, ...p.needs }, settings: { ...base.settings, ...p.settings }, daily: { ...base.daily, ...p.daily }, stat: { ...base.stat, ...p.stat }, wearing: { ...base.wearing, ...p.wearing }, tasks: { ...base.tasks, ...p.tasks } };
       }
     } catch {
       this.s = newState();
@@ -113,9 +137,10 @@ export class Game {
   }
 
   reset() {
-    const settings = this.s.settings;
+    const { settings, ledger } = this.s;
     this.s = newState();
     this.s.settings = settings;
+    this.s.ledger = ledger; // the store test log outlives a restart
     this.save();
   }
 
@@ -174,13 +199,13 @@ export class Game {
 
   /** Notes per minute dropping into the jar. `factor` overrides the mood bonus. */
   tipRate(factor) {
-    const f = factor ?? ((this.harmony ? 2 : 0.5 + this.mood) * (this.s.frenzy > 0 ? 3 : 1));
+    const f = factor ?? ((this.harmony ? 2 : 0.5 + this.mood) * (this.s.frenzy > 0 ? 3 : 1) * (this.s.magnet > 0 ? 2 : 1));
     return (TIP_BASE + TIP_PER_PART * this.total) * this.boost * f;
   }
 
   /** The jar holds a couple of hours of tips; a bigger orchestra needs a bigger jar. */
   tipCap() {
-    return Math.round(this.tipRate(1) * (60 + 20 * this.total));
+    return Math.round(this.tipRate(1) * (60 + 20 * this.total) * (this.s.jumbo ? 2 : 1));
   }
 
   get jarFill() {
@@ -191,6 +216,8 @@ export class Game {
     const amount = Math.floor(this.s.jar);
     if (amount < 1) return 0;
     this.s.jar -= amount;
+    this.bump('jarNotes', amount);
+    this.bump('jarCollects');
     return this.earn(amount);
   }
 
@@ -221,15 +248,22 @@ export class Game {
     const tier = roll < 0.08 ? 'jackpot' : roll < 0.3 ? 'big' : 'nice';
     const mult = { jackpot: 4, big: 2, nice: 1 }[tier];
     const amount = this.earn((15 + 10 * this.total) * this.streakMult(d.streak) * mult * this.boost);
+    const day = ((d.streak - 1) % STREAK_LEN) + 1;
+    const gems = day === STREAK_LEN ? 20 : 0;
+    this.s.gems += gems;
     this.save(now);
-    return { amount, tier, streak: d.streak, kept, day: ((d.streak - 1) % STREAK_LEN) + 1, next: this.streakMult(d.streak + 1) };
+    return { amount, gems, tier, streak: d.streak, kept, day, next: this.streakMult(d.streak + 1) };
   }
 
   /** Prize for catching a golden note. */
   goldenPrize() {
     const roll = this.rng();
     const base = (6 + 3 * this.total) * this.boost;
-    if (roll < 0.03) return { kind: 'jackpot', amount: this.earn(base * 8) };
+    this.bump('golden');
+    if (roll < 0.03) {
+      this.s.gems += 5;
+      return { kind: 'jackpot', amount: this.earn(base * 8), gems: 5 };
+    }
     if (roll < 0.15) return { kind: 'big', amount: this.earn(base * 3) };
     if (roll < 0.4) {
       this.s.frenzy = 30;
@@ -308,6 +342,11 @@ export class Game {
     this.s.petPool = Math.min(10, this.s.petPool + dt / 7);
     this.s.jar = Math.min(this.tipCap(), this.s.jar + (this.tipRate() * dt) / 60);
     this.s.frenzy = Math.max(0, this.s.frenzy - dt);
+    this.s.magnet = Math.max(0, this.s.magnet - dt);
+    this.s.playSeconds += dt;
+    const h = this.harmony;
+    if (h && !this._wasHarmony) this.bump('harmony');
+    this._wasHarmony = h;
   }
 
   earn(amount) {
@@ -333,6 +372,7 @@ export class Game {
   pet() {
     const s = this.s;
     s.pets++;
+    this.bump('pets');
     s.needs.fun = Math.min(100, s.needs.fun + 1.5);
     if (s.petPool >= 1) {
       s.petPool -= 1;
@@ -368,13 +408,242 @@ export class Game {
   }
 
   finishConcert(bonus = 0) {
-    const reaction = this.crowdReaction(bonus);
-    const reward = this.concertReward(bonus) * reaction.mult;
-    this.s.concerts++;
+    const s = this.s;
+    let reaction = this.crowdReaction(bonus);
+    let ticket = false;
+    if (s.tickets > 0) {
+      s.tickets--;
+      ticket = true;
+      if (reaction.mult < 2) reaction = { tier: 'ovation', mult: 2 };
+    }
+    const place = placeById(s.place);
+    const reward = this.concertReward(bonus) * reaction.mult * place.mult;
+    s.concerts++;
+    this.bump('concerts');
+    s.stat.concertsAt[place.id] = (s.stat.concertsAt[place.id] || 0) + 1;
+    // applause at a venue adds up to fame stars there
+    const before = this.fameStars(place.id);
+    s.fame[place.id] = (s.fame[place.id] || 0) + { applause: 1, cheers: 2, ovation: 3, encore: 4 }[reaction.tier];
+    const stars = this.fameStars(place.id);
+    const newStars = place.id === 'home' ? 0 : stars - before;
+    s.gems += newStars * 5;
     this.spend('rest', 20);
     this.spend('food', 7);
-    this.s.needs.fun = Math.min(100, this.s.needs.fun + 12);
-    return { earned: this.earn(reward), ...reaction };
+    s.needs.fun = Math.min(100, s.needs.fun + 12);
+    return { earned: this.earn(reward), ...reaction, ticket, place: place.id, stars, newStars, gems: newStars * 5 };
+  }
+
+  // ------------------------------------------------------------- the world
+
+  fameStars(place) {
+    const pts = this.s.fame[place] || 0;
+    return FAME_STEPS.filter((n) => pts >= n).length;
+  }
+
+  /** Stars earned across every isle (the porch at home does not count). */
+  get fame() {
+    return PLACES.reduce((sum, p) => sum + (p.id === 'home' ? 0 : this.fameStars(p.id)), 0);
+  }
+
+  placeOpen(id) {
+    return this.fame >= placeById(id).need;
+  }
+
+  travel(id) {
+    if (!this.placeOpen(id) || id === this.s.place) return false;
+    const first = !this.s.visited.includes(id);
+    this.s.place = id;
+    if (first) this.s.visited.push(id);
+    if (id !== 'home') this.bump('travels');
+    this.save();
+    return { first };
+  }
+
+  /** How far along a friend's current quest is. Null when they have none left. */
+  questState(npc) {
+    const st = this.s.q[npc];
+    const list = QUESTS[npc];
+    if (!st || st.i >= list.length) return null;
+    const quest = list[st.i];
+    const g = quest.goal;
+    const stat = this.s.stat;
+    const since = (key) => (stat[key] || 0) - (st.base[key] || 0);
+    let have, need = g.n || 1;
+    if (g.type === 'concertsAt') have = (stat.concertsAt[g.place] || 0) - ((st.base.concertsAt || {})[g.place] || 0);
+    else if (g.type === 'fame') have = this.fameStars(g.place);
+    else if (g.type === 'grow') {
+      have = this.s.levels[g.family];
+      need = g.tier;
+    } else if (g.type === 'full') {
+      have = this.total;
+      need = 12;
+    } else if (g.type === 'jar') have = since('jarNotes');
+    else have = since(g.type); // harmony, golden, pets
+    return { quest, index: st.i, have: Math.min(have, need), need, done: have >= need };
+  }
+
+  _giveQuest(npc, i) {
+    this.s.q[npc] = { i, base: JSON.parse(JSON.stringify(this.s.stat)) };
+  }
+
+  /**
+   * Talk to a friend. First meeting: an introduction and their first quest.
+   * Later: hand in a finished quest (and get the next), or just chat.
+   */
+  talk(npc) {
+    const who = NPCS[npc];
+    const s = this.s;
+    const lines = [];
+    let reward = null;
+    if (!s.met.includes(npc)) {
+      s.met.push(npc);
+      lines.push(...who.intro);
+      this._giveQuest(npc, 0);
+      lines.push(QUESTS[npc][0].ask);
+    } else {
+      const qs = this.questState(npc);
+      if (qs && qs.done) {
+        reward = this._reward(qs.quest.reward);
+        lines.push(qs.quest.done);
+        const next = qs.index + 1;
+        this._giveQuest(npc, next);
+        if (QUESTS[npc][next]) lines.push(QUESTS[npc][next].ask);
+        else lines.push('You have done everything I could ask. Come and play whenever you like.');
+      } else {
+        lines.push(who.idle[Math.floor(this.rng() * who.idle.length)]);
+        if (qs) lines.push(`${qs.quest.ask} (${qs.have} of ${qs.need})`);
+      }
+    }
+    this.save();
+    return { name: who.name, title: who.title, lines, reward };
+  }
+
+  _reward(r) {
+    const s = this.s;
+    const out = { notes: 0, gems: r.gems || 0, souvenir: null, legend: null, cosmetic: null };
+    if (r.notes) out.notes = this.earn(r.notes * this.boost);
+    s.gems += out.gems;
+    if (r.souvenir && !s.souvenirs.includes(r.souvenir)) s.souvenirs.push((out.souvenir = r.souvenir));
+    if (r.legend && !s.legends.includes(r.legend)) s.legends.push((out.legend = r.legend));
+    if (r.cosmetic && !s.wardrobe.includes(r.cosmetic)) s.wardrobe.push((out.cosmetic = r.cosmetic));
+    return out;
+  }
+
+  /** Songbook progress: places seen, friends met, legends heard. */
+  get songbook() {
+    const have = this.s.visited.length + this.s.met.length + this.s.legends.length;
+    return { have, total: PLACES.length + Object.keys(NPCS).length + 6 };
+  }
+
+  // ------------------------------------------------------- daily to-do list
+
+  /** Three small tasks, re-drawn each calendar day. */
+  ensureTasks(now = Date.now()) {
+    const day = dayIndex(now);
+    const t = this.s.tasks;
+    if (t.day === day && t.list.length) return t.list;
+    // a different, repeatable trio each day
+    const order = TASKS.map((_, i) => i).sort((a, b) => ((a * 7 + day * 13) % 11) - ((b * 7 + day * 13) % 11) || a - b);
+    const picked = [];
+    for (const i of order) {
+      if (picked.length < 3 && !picked.some((k) => TASKS[k].type === TASKS[i].type)) picked.push(i);
+    }
+    t.day = day;
+    t.list = picked.map((k) => ({ k, have: 0, done: false }));
+    t.bonus = false;
+    return t.list;
+  }
+
+  /** Count something that happened, for quests and daily tasks. */
+  bump(type, n = 1) {
+    const s = this.s;
+    s.stat[type] = (s.stat[type] || 0) + n;
+    if (!s.adopted) return;
+    for (const t of this.ensureTasks()) {
+      const def = TASKS[t.k];
+      if (t.done || def.type !== type) continue;
+      t.have = Math.min(def.n, t.have + (type === 'jarNotes' ? 0 : n));
+      if (t.have >= def.n) {
+        t.done = true;
+        s.gems += TASK_GEMS;
+        this.news.push({ type: 'task', label: def.label, gems: TASK_GEMS });
+      }
+    }
+    if (!s.tasks.bonus && s.tasks.list.length && s.tasks.list.every((t) => t.done)) {
+      s.tasks.bonus = true;
+      s.gems += TASK_BONUS;
+      this.news.push({ type: 'tasks', gems: TASK_BONUS });
+    }
+  }
+
+  // ------------------------------------------------- gems + pretend store
+
+  spendGems(cost) {
+    if (this.s.gems < cost) return false;
+    this.s.gems -= cost;
+    return true;
+  }
+
+  /**
+   * A PRETEND purchase: nothing is charged anywhere. Grants the pack and
+   * writes a line in the test ledger so the store can be evaluated.
+   */
+  buyPack(sku, now = Date.now()) {
+    const pack = GEM_PACKS.find((p) => p.sku === sku);
+    const s = this.s;
+    if (!pack || (pack.once && s.bought.includes(sku))) return null;
+    s.gems += pack.gems;
+    if (pack.notes) this.earn(pack.notes);
+    if (pack.cosmetic && !s.wardrobe.includes(pack.cosmetic)) s.wardrobe.push(pack.cosmetic);
+    if (pack.once) s.bought.push(sku);
+    s.ledger.push({ t: now, sku, name: pack.name, price: pack.price, at: Math.round(s.playSeconds) });
+    this.save(now);
+    return pack;
+  }
+
+  /** Totals for the store test log. */
+  get ledger() {
+    const l = this.s.ledger;
+    return { count: l.length, total: l.reduce((a, b) => a + b.price, 0), firstAt: l.length ? l[0].at : null, items: l };
+  }
+
+  clearLedger() {
+    this.s.ledger = [];
+    this.save();
+  }
+
+  buyBoost(id) {
+    const b = BOOSTS.find((x) => x.id === id);
+    const s = this.s;
+    if (!b || (b.once && s.bought.includes(id)) || !this.spendGems(b.cost)) return null;
+    let detail = 0;
+    if (id === 'hamper') for (const k of NEEDS) s.needs[k] = 100;
+    else if (id === 'magnet') s.magnet += 600;
+    else if (id === 'ticket') s.tickets++;
+    else if (id === 'sack') detail = this.earn((100 + 40 * this.total) * this.boost);
+    else if (id === 'jumbo') s.jumbo = true;
+    if (b.once) s.bought.push(id);
+    this.save();
+    return { ...b, detail };
+  }
+
+  buyCosmetic(id) {
+    const c = cosmeticById(id);
+    const s = this.s;
+    if (!c || c.cost == null || s.wardrobe.includes(id) || !this.spendGems(c.cost)) return false;
+    s.wardrobe.push(id);
+    s.wearing[c.slot] = id;
+    this.save();
+    return true;
+  }
+
+  /** Put an owned item on, or take it off if it is already on. */
+  wear(id) {
+    const c = cosmeticById(id);
+    if (!c || !this.s.wardrobe.includes(id)) return false;
+    this.s.wearing[c.slot] = this.s.wearing[c.slot] === id ? null : id;
+    this.save();
+    return true;
   }
 
   buy(id) {

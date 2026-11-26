@@ -339,3 +339,44 @@ export function panFluteMane(M) {
   }
   return tagAll(g, 'wood3');
 }
+
+// --------------------------------------------------------------- outfits
+
+/** Wardrobe items. `slot` decides which rig node they hang from. */
+export function outfit(M, id) {
+  const g = group(null);
+  const gold = M.gold;
+  if (id === 'partyhat') {
+    const h = group(g, [0.07, 0.36, 0.05], [0.12, 0, -0.22]);
+    part(h, G.cyl(0.001, 0.15, 0.36, 24), M.colored('#FF5D8F'), { p: [0, 0.18, 0] });
+    part(h, G.torus(0.15, 0.022, Math.PI * 2, 24, 8), M.colored('#FFD23F'), { p: [0, 0.01, 0], r: [HALF_PI, 0, 0] });
+    part(h, G.sphere(0.05, 12, 10), M.colored('#FFD23F'), { p: [0, 0.37, 0] });
+    for (const [y, r] of [[0.1, 0.112], [0.2, 0.07]]) part(h, G.torus(r, 0.012, Math.PI * 2, 20, 6), M.colored('#3FD8FF'), { p: [0, y, 0], r: [HALF_PI, 0, 0] });
+  } else if (id === 'tophat') {
+    const h = group(g, [0, 0.36, 0.04], [0.1, 0, -0.1]);
+    part(h, G.cyl(0.25, 0.25, 0.025, 28), M.ebony, { p: [0, 0.01, 0] });
+    part(h, G.cyl(0.17, 0.16, 0.28, 28), M.ebony, { p: [0, 0.16, 0] });
+    part(h, G.cyl(0.166, 0.166, 0.06, 28), M.colored('#E5484D'), { p: [0, 0.055, 0] });
+  } else if (id === 'crown') {
+    const h = group(g, [0, 0.37, 0.03], [0.08, 0, 0]);
+    part(h, G.cyl(0.21, 0.2, 0.09, 28, true), gold, { p: [0, 0.045, 0] });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      part(h, G.cyl(0.001, 0.05, 0.13, 10), gold, { p: [Math.cos(a) * 0.2, 0.15, Math.sin(a) * 0.2] });
+      part(h, G.sphere(0.024, 10, 8), M.colored(['#E5484D', '#3FD8FF', '#7CE38B'][i % 3]), { p: [Math.cos(a + 0.52) * 0.208, 0.05, Math.sin(a + 0.52) * 0.208] });
+    }
+  } else if (id === 'shades') {
+    for (const s of [-1, 1]) {
+      part(g, G.cyl(0.105, 0.105, 0.02, 20), M.ebony, { p: [s * 0.165, 0.05, 0.4], r: [HALF_PI, 0, 0], cast: false });
+      part(g, G.torus(0.105, 0.016, Math.PI * 2, 24, 8), gold, { p: [s * 0.165, 0.05, 0.405], cast: false });
+      part(g, G.sphere(0.022, 8, 6), M.white, { p: [s * 0.165 - 0.035, 0.085, 0.415], cast: false });
+    }
+    rod(g, [-0.07, 0.06, 0.41], [0.07, 0.06, 0.41], 0.014, gold);
+  } else if (id === 'bowtie') {
+    const b = group(g, [0, -0.13, 0.215]);
+    const red = M.colored('#E5484D');
+    for (const s of [-1, 1]) part(b, G.cyl(0.085, 0.02, 0.15, 14), red, { p: [s * 0.085, 0, 0], r: [0, 0, -s * HALF_PI], s: [1, 1, 0.55] });
+    part(b, G.sphere(0.04, 12, 10), M.colored('#B8323A'));
+  }
+  return tagAll(g, 'pet');
+}
